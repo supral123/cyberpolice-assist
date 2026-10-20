@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberPolice Assist | Cyber Operations</title>
+
+    <style>
+        :root {
+            --green: #00ff88;
+            --bg: #050907;
+            --panel: #0b1510;
+            --text: #e0ffed;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Consolas, monospace;
+        }
+
+        header {
+            padding: 24px;
+            border-bottom: 1px solid #174b32;
+            background: #08110c;
+        }
+
+        header h1 {
+            color: var(--green);
+            text-shadow: 0 0 12px #00ff8860;
+            margin: 0 0 8px;
+        }
+
+        header p {
+            color: #8eb9a0;
+        }
+
+        .status {
+            color: var(--green);
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: 85vh;
+        }
+
+        aside {
+            padding: 24px 16px;
+            border-right: 1px solid #174b32;
+            background: #08110c;
+        }
+
+        aside a {
+            display: block;
+            padding: 14px;
+            margin-bottom: 10px;
+            color: var(--green);
+            text-decoration: none;
+            border: 1px solid transparent;
+        }
+
+        aside a:hover {
+            border-color: var(--green);
+            background: #102519;
+        }
+
+        main {
+            padding: 28px;
+            min-width: 0;
+        }
+
+        h2 {
+            color: var(--green);
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            padding: 22px;
+            background: var(--panel);
+            border: 1px solid #17633e;
+            border-radius: 8px;
+            box-shadow: 0 0 15px #00ff880b;
+        }
+
+        .card h3 {
+            color: #a1cbb2;
+            font-size: 14px;
+        }
+
+        .number {
+            font-size: 32px;
+            color: var(--green);
+        }
+
+        .terminal {
+            margin-top: 26px;
+            padding: 22px;
+            background: #020503;
+            border: 1px solid #17633e;
+            border-radius: 8px;
+            line-height: 1.9;
+            overflow-wrap: anywhere;
+        }
+
+        .terminal p {
+            margin: 4px 0;
+        }
+
+        .terminal span {
+            color: var(--green);
+        }
+
+        .blink {
+            animation: blink 1s steps(2, start) infinite;
+        }
+
+        @keyframes blink {
+            to { visibility: hidden; }
+        }
+
+        .notice {
+            color: #9ab8a5;
+            font-size: 13px;
+        }
+
+        @media (max-width: 700px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            aside {
+                border-right: none;
+                border-bottom: 1px solid #174b32;
+            }
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            main {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>⬡ CYBERPOLICE ASSIST</h1>
+    <p>CYBER CRIME MANAGEMENT SYSTEM</p>
+    <div class="status">● SYSTEM INTERFACE ONLINE</div>
+</header>
+
+<div class="layout">
+
+    <aside>
+        <a href="#dashboard">⌂ DASHBOARD</a>
+        <a href="#programs">▣ PROGRAM RECORDS</a>
+        <a href="#register">▤ PROGRAM REGISTER</a>
+        <a href="#terminal">⌘ SYSTEM TERMINAL</a>
+    </aside>
+
+    <main id="dashboard">
+        <h2>// CYBER OPERATIONS CENTER</h2>
+        <p>Monitor programs, attendance and cyber awareness activities.</p>
+
+        <div class="cards">
+            <div class="card">
+                <h3>TOTAL PROGRAMS</h3>
+                <div class="number">01</div>
+                <p class="notice">Program records</p>
+            </div>
+
+            <div class="card">
+                <h3>TOTAL ATTENDEES</h3>
+                <div class="number">200</div>
+                <p class="notice">Recorded attendance</p>
+            </div>
+
+            <div class="card">
+                <h3>SYSTEM STATUS</h3>
+                <div class="number">ACTIVE</div>
+                <p class="notice">Dashboard interface</p>
+            </div>
+        </div>
+
+        <section class="terminal" id="terminal">
+            <h2>TERMINAL // SYSTEM LOG</h2>
+            <p><span>[OK]</span> CyberPolice Assist interface initialized.</p>
+            <p><span>[OK]</span> Dashboard modules loaded.</p>
+            <p><span>[INFO]</span> Ready for authorized program management.</p>
+            <p><span>admin@cyberpolice:~$</span> <b class="blink">_</b></p>
+        </section>
+
+        <section id="programs">
+            <h2>// PROGRAM RECORDS</h2>
+            <p>Use your existing application to view and manage real program records.</p>
+        </section>
+
+        <section id="register">
+            <h2>// PROGRAM REGISTER</h2>
+            <p>Connect this section to your existing registration feature.</p>
+        </section>
+
+        <p class="notice">
+            CyberPolice Assist | Authorized Cyber Awareness Management
+        </p>
+    </main>
+
+</div>
+
+</body>
+</html>
