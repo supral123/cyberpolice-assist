@@ -9,15 +9,16 @@ from xml.sax.saxutils import escape
 
 from flask import (
     Flask, request, redirect, url_for, render_template_string,
-    send_from_directory, send_file, abort, session, flash
+    send_from_directory, send_file, abort, session
 )
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+# Overall request limit (all photos combined plus form data). There is no
+# separate 5 MB per-photo limit in this application.
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "")
 if not app.config["SECRET_KEY"]:
-    # Set SECRET_KEY in Render environment variables for stable sessions.
     app.config["SECRET_KEY"] = uuid.uuid4().hex + uuid.uuid4().hex
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,10 +29,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 MAX_PHOTOS = 10
-MAX_PHOTO_SIZE = 5 * 1024 * 1024
 
-# Set ADMIN_USERNAME and ADMIN_PASSWORD in Render -> Environment.
-# Do not put your real password directly in this file or in GitHub.
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
@@ -53,9 +51,10 @@ TEXT = {
         "no_programs": "No programs found. Add your first program to get started.",
         "required": "Please fill in all required fields correctly.",
         "saved": "Program saved successfully.", "updated": "Program updated successfully.",
-        "not_found": "Program not found.", "invalid_photo": "Upload JPG, PNG or WEBP images under 5 MB each.",
+        "not_found": "Program not found.",
+        "invalid_photo": "Upload JPG, PNG or WEBP images only.",
         "too_many": "You can upload up to 10 photographs for one program in total.",
-        "photo_help": "Optional. Select up to 10 JPG, PNG or WEBP images, maximum 5 MB each.",
+        "photo_help": "Optional. Select up to 10 JPG, PNG or WEBP images. No 5 MB per-photo limit; the overall request is limited to 50 MB.",
         "details_placeholder": "Enter program details, topics covered, officers' names, outcomes, etc.",
         "station_placeholder": "Enter police station name", "place_placeholder": "Enter program location",
         "name_placeholder": "Enter program name", "no_photo": "No photographs uploaded",
@@ -67,6 +66,11 @@ TEXT = {
         "created": "Created", "report": "CYBER AWARENESS PROGRAM REPORT",
         "report_generated": "Generated", "photo_page": "PROGRAM PHOTOGRAPHS",
         "page_info": "Page 1 contains program information. Photographs start on the next page.",
+        "photo_count": "Photographs selected", "add_photo": "Add Another Photo",
+        "remove_photo": "Remove", "voice_language": "Voice Typing Language",
+        "start_voice": "🎤 Start Speaking", "stop_voice": "⏹ Stop Speaking",
+        "voice_listening": "Listening. Please speak.", "voice_stopped": "Voice typing stopped.",
+        "voice_unsupported": "Voice typing is not supported in this browser. Try a compatible browser or your keyboard microphone.",
     },
     "mr": {
         "title": "सायबरपोलीस सहाय्य", "subtitle": "सायबर जनजागृती कार्यक्रम व्यवस्थापन",
@@ -85,9 +89,10 @@ TEXT = {
         "no_programs": "कार्यक्रम आढळला नाही. पहिला कार्यक्रम जोडा.",
         "required": "कृपया सर्व आवश्यक माहिती योग्यरीत्या भरा.",
         "saved": "कार्यक्रम यशस्वीपणे जतन झाला.", "updated": "कार्यक्रम अद्ययावत झाला.",
-        "not_found": "कार्यक्रम आढळला नाही.", "invalid_photo": "प्रत्येक 5 MB पेक्षा कमी JPG, PNG किंवा WEBP छायाचित्रे अपलोड करा.",
+        "not_found": "कार्यक्रम आढळला नाही.",
+        "invalid_photo": "फक्त JPG, PNG किंवा WEBP छायाचित्रे अपलोड करा.",
         "too_many": "एका कार्यक्रमासाठी एकूण जास्तीत जास्त 10 छायाचित्रे अपलोड करू शकता.",
-        "photo_help": "पर्यायी. कमाल 10 छायाचित्रे, प्रत्येक 5 MB पर्यंत.",
+        "photo_help": "पर्यायी. एका कार्यक्रमासाठी कमाल 10 JPG, PNG किंवा WEBP छायाचित्रे निवडा. प्रत्येक फोटोसाठी 5 MB मर्यादा नाही; एकूण विनंती 50 MB पर्यंत आहे.",
         "details_placeholder": "कार्यक्रमाची माहिती, विषय, अधिकाऱ्यांची नावे, निष्कर्ष इत्यादी लिहा.",
         "station_placeholder": "पोलीस स्टेशनचे नाव लिहा", "place_placeholder": "कार्यक्रमाचे ठिकाण लिहा",
         "name_placeholder": "कार्यक्रमाचे नाव लिहा", "no_photo": "छायाचित्रे अपलोड केलेली नाहीत",
@@ -99,6 +104,11 @@ TEXT = {
         "created": "तयार केले", "report": "सायबर जनजागृती कार्यक्रम अहवाल",
         "report_generated": "अहवाल तयार केला", "photo_page": "कार्यक्रमाची छायाचित्रे",
         "page_info": "पहिल्या पानावर कार्यक्रमाची माहिती आहे. पुढील पानावर छायाचित्रे सुरू होतील.",
+        "photo_count": "निवडलेली छायाचित्रे", "add_photo": "आणखी छायाचित्र जोडा",
+        "remove_photo": "काढा", "voice_language": "आवाजाची भाषा",
+        "start_voice": "🎤 बोलणे सुरू करा", "stop_voice": "⏹ बोलणे थांबवा",
+        "voice_listening": "ऐकत आहे. कृपया बोला.", "voice_stopped": "आवाजातून टायपिंग थांबले.",
+        "voice_unsupported": "या ब्राउझरमध्ये आवाज ओळख उपलब्ध नाही. समर्थित ब्राउझर किंवा कीबोर्डचा मायक्रोफोन वापरा.",
     }
 }
 
@@ -137,7 +147,6 @@ def init_db():
             value TEXT DEFAULT ''
         )
     """)
-    # Preserve old one-photo records by migrating their photo into the gallery table.
     old_rows = conn.execute(
         "SELECT id, photo FROM programs WHERE COALESCE(photo, '') != ''"
     ).fetchall()
@@ -179,6 +188,7 @@ def render_page(page, lang="en", **kwargs):
         "page": page, "lang": lang, "t": TEXT[lang],
         "message": kwargs.pop("message", ""),
         "error": kwargs.pop("error", False),
+        "logged_in": logged_in(),
     }
     values.update(kwargs)
     return render_template_string(PAGE, **values)
@@ -198,10 +208,12 @@ a{color:var(--green);text-decoration:none}a:hover{text-decoration:underline}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}.button{display:inline-block;background:var(--green);color:#102016;border:1px solid var(--green);border-radius:5px;padding:10px 15px;font-size:14px;font-weight:bold;cursor:pointer;text-align:center}.button:hover{background:#86e4a2;color:#102016;text-decoration:none}.button.secondary{background:transparent;color:var(--green)}.button.danger{background:#4a2424;border-color:#8b4a4a;color:#ffdada}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;margin:20px 0;overflow:hidden}.panel-header{padding:14px 18px;border-bottom:1px solid var(--border)}.panel-header h2{font-size:19px;margin:0}.panel-body{padding:18px}
 .message{padding:11px 14px;border:1px solid #38794b;border-radius:5px;background:#1b3223;color:#b8f5c8;margin-bottom:16px}.message.error{background:#382020;border-color:#824545;color:#ffc4c4}
-input,textarea{width:100%;background:#101713;border:1px solid var(--border);border-radius:5px;padding:11px 12px;color:var(--text);font:14px Arial,sans-serif}input:focus,textarea:focus{outline:none;border-color:var(--green)}textarea{min-height:125px;resize:vertical}label{display:block;margin-bottom:6px;font-size:14px;font-weight:bold}.form-group{margin-bottom:17px}.help{color:var(--muted);font-size:12px;margin-top:5px}
-.search-form{display:flex;gap:10px;margin-bottom:16px}.search-form input{flex:1;min-width:0}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:650px}th{text-align:left;background:var(--panel2);color:var(--green);font-size:12px;text-transform:uppercase}th,td{padding:12px;border-bottom:1px solid var(--border)}td{font-size:14px}tbody tr:hover{background:#202a23}.empty{padding:25px;text-align:center;color:var(--muted)}
+input,textarea,select{width:100%;background:#101713;border:1px solid var(--border);border-radius:5px;padding:11px 12px;color:var(--text);font:14px Arial,sans-serif}input:focus,textarea:focus,select:focus{outline:none;border-color:var(--green)}textarea{min-height:125px;resize:vertical}label{display:block;margin-bottom:6px;font-size:14px;font-weight:bold}.form-group{margin-bottom:17px}.help{color:var(--muted);font-size:12px;margin-top:5px}
+.search-form{display:flex;gap:10px;margin-bottom:16px}.search-form input{flex:1;min-width:0}.search-form .button{width:auto}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:650px}th{text-align:left;background:var(--panel2);color:var(--green);font-size:12px;text-transform:uppercase}th,td{padding:12px;border-bottom:1px solid var(--border)}td{font-size:14px}tbody tr:hover{background:#202a23}.empty{padding:25px;text-align:center;color:var(--muted)}
 .badge{display:inline-block;padding:4px 9px;border-radius:4px;background:#243a2b;color:var(--green);font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.detail-item{background:#121914;border:1px solid var(--border);padding:13px;border-radius:5px;overflow-wrap:anywhere}.detail-label{color:var(--muted);font-size:12px;margin-bottom:4px}.detail-value{font-size:15px;font-weight:bold;white-space:pre-wrap}
 .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px}.gallery img{width:100%;height:190px;object-fit:cover;border-radius:6px;border:1px solid var(--border);background:#0b100d}
+.photo-preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px;margin-top:12px}.photo-preview{border:1px solid var(--border);border-radius:6px;padding:8px;min-width:0}.photo-preview img{width:100%;height:100px;object-fit:cover;border-radius:4px}.photo-preview .filename{font-size:11px;overflow-wrap:anywhere;margin:5px 0}.photo-preview button{width:100%;padding:7px}
 .login-box{max-width:420px;margin:55px auto}.footer{border-top:1px solid var(--border);text-align:center;color:var(--muted);padding:20px;margin-top:36px;font-size:12px}
 @media(max-width:650px){.container{margin-top:18px;padding:0 12px}.welcome h1{font-size:23px}.stats,.detail-grid{grid-template-columns:1fr}.panel-body{padding:13px}.search-form{flex-direction:column}.search-form .button{width:100%}}
 </style></head><body>
@@ -231,17 +243,104 @@ input,textarea{width:100%;background:#101713;border:1px solid var(--border);bord
 {% elif page == 'form' %}
 <section class="welcome"><h1>{{ t.add_program if mode == 'add' else t.edit }}</h1></section>
 <section class="panel"><div class="panel-header"><h2>{{ t.add_program if mode == 'add' else t.edit }}</h2></div><div class="panel-body">
-<form method="POST" enctype="multipart/form-data" action="{{ form_action }}">
+<form id="programForm" method="POST" enctype="multipart/form-data" action="{{ form_action }}">
 <div class="form-group"><label>{{ t.date }} *</label><input type="date" name="date" value="{{ form.get('date','') }}" required></div>
 <div class="form-group"><label>{{ t.station }} *</label><input name="station" value="{{ form.get('station','') }}" maxlength="150" placeholder="{{ t.station_placeholder }}" required></div>
 <div class="form-group"><label>{{ t.place }} *</label><input name="place" value="{{ form.get('place','') }}" maxlength="200" placeholder="{{ t.place_placeholder }}" required></div>
 <div class="form-group"><label>{{ t.name }} *</label><input name="name" value="{{ form.get('name','') }}" maxlength="200" placeholder="{{ t.name_placeholder }}" required></div>
 <div class="form-group"><label>{{ t.attendees }} *</label><input type="number" name="attendees" value="{{ form.get('attendees','0') }}" min="0" max="10000000" required></div>
-<div class="form-group"><label>{{ t.details }}</label><textarea name="details" maxlength="15000" placeholder="{{ t.details_placeholder }}">{{ form.get('details','') }}</textarea></div>
-{% if mode == 'edit' and photos %}<div class="form-group"><label>{{ t.existing_photos }}</label><div class="gallery">{% for photo in photos %}<a href="{{ url_for('uploaded_file',filename=photo.filename) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploaded_file',filename=photo.filename) }}" alt="Program photo"></a>{% endfor %}</div></div>{% endif %}
-<div class="form-group"><label>{{ t.photos if mode == 'add' else t.add_more_photos }}</label><input type="file" name="photos" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"><div class="help">{{ t.photo_help }}</div></div>
+<div class="form-group"><label for="programDetails">{{ t.details }}</label>
+<textarea id="programDetails" name="details" maxlength="15000" placeholder="{{ t.details_placeholder }}">{{ form.get('details','') }}</textarea>
+<label for="voiceLanguage" style="margin-top:10px">{{ t.voice_language }}</label>
+<select id="voiceLanguage"><option value="en-IN">English</option><option value="mr-IN">Marathi</option><option value="hi-IN">Hindi</option></select>
+<button class="button" type="button" id="startVoice">{{ t.start_voice }}</button>
+<button class="button secondary" type="button" id="stopVoice" disabled>{{ t.stop_voice }}</button>
+<p id="voiceStatus" class="help" aria-live="polite"></p>
+</div>
+{% if mode == 'edit' and photos %}<div class="form-group"><label>{{ t.existing_photos }}</label><div class="gallery">{% for photo in photos %}<a href="{{ url_for('uploaded_file',filename=photo.filename) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploaded_file',filename=photo.filename) }}" alt="Program photo"></a>{% endfor %}</div><div class="help">Existing photos count toward the maximum of 10. To remove an existing photo, use a photo-management feature (not yet provided in this form).</div></div>{% endif %}
+<div class="form-group"><label>{{ t.photos if mode == 'add' else t.add_more_photos }}</label>
+<input type="file" id="photoPicker" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple>
+<div class="help">{{ t.photo_help }}</div>
+<p id="photoCount">0 / {{ 10 - (photos|length if mode == 'edit' else 0) }} {{ t.photo_count }}</p>
+<div id="photoPreview" class="photo-preview-grid"></div>
+<div id="uploadInputs"></div>
+<button class="button secondary" type="button" id="addPhotoButton">{{ t.add_photo }}</button>
+</div>
 <div class="actions"><button class="button" type="submit">{{ t.submit if mode == 'add' else t.save_changes }}</button><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.cancel }}</a></div>
 </form></div></section>
+<script>
+(function(){
+  const form=document.getElementById('programForm');
+  const picker=document.getElementById('photoPicker');
+  const preview=document.getElementById('photoPreview');
+  const count=document.getElementById('photoCount');
+  const inputs=document.getElementById('uploadInputs');
+  const addButton=document.getElementById('addPhotoButton');
+  const maxAllowed={{ 10 - (photos|length if mode == 'edit' else 0) }};
+  let selected=[];
+  let idCounter=1;
+  function render(){
+    preview.replaceChildren(); inputs.replaceChildren();
+    selected.forEach(item=>{
+      const card=document.createElement('div'); card.className='photo-preview';
+      const img=document.createElement('img'); img.alt=item.file.name;
+      const objectUrl=URL.createObjectURL(item.file); img.src=objectUrl;
+      img.onload=()=>URL.revokeObjectURL(objectUrl);
+      const name=document.createElement('div'); name.className='filename'; name.textContent=item.file.name;
+      const remove=document.createElement('button'); remove.type='button'; remove.className='button danger'; remove.textContent={{ t.remove_photo|tojson }};
+      remove.addEventListener('click',()=>{selected=selected.filter(x=>x.id!==item.id);render();});
+      card.append(img,name,remove); preview.appendChild(card);
+      const dt=new DataTransfer(); dt.items.add(item.file);
+      const input=document.createElement('input'); input.type='file'; input.name='photos'; input.hidden=true; input.files=dt.files;
+      inputs.appendChild(input);
+    });
+    count.textContent=selected.length+' / '+maxAllowed+' {{ t.photo_count }}';
+    picker.disabled=selected.length>=maxAllowed; addButton.disabled=selected.length>=maxAllowed;
+  }
+  function addFiles(files){
+    for(const file of files){
+      if(selected.length>=maxAllowed){alert('Maximum photo count reached.');break;}
+      const ext=file.name.split('.').pop().toLowerCase();
+      if(!['jpg','jpeg','png','webp'].includes(ext)){alert(file.name+' is not a supported image.');continue;}
+      selected.push({id:idCounter++,file});
+    }
+    render();
+  }
+  picker.addEventListener('change',()=>{addFiles(Array.from(picker.files||[]));picker.value='';});
+  addButton.addEventListener('click',()=>{if(selected.length<maxAllowed)picker.click();});
+  form.addEventListener('submit',e=>{if(selected.length>maxAllowed){e.preventDefault();alert('Maximum photo count exceeded.');}});
+})();
+(function(){
+  const details=document.getElementById('programDetails');
+  const language=document.getElementById('voiceLanguage');
+  const start=document.getElementById('startVoice');
+  const stop=document.getElementById('stopVoice');
+  const status=document.getElementById('voiceStatus');
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRecognition){start.disabled=true;status.textContent={{ t.voice_unsupported|tojson }};return;}
+  const recognition=new SpeechRecognition();
+  recognition.continuous=true; recognition.interimResults=true; recognition.maxAlternatives=1;
+  let listening=false,baseText='',finalText='';
+  start.addEventListener('click',()=>{
+    if(listening)return;
+    baseText=details.value.trimEnd(); finalText=''; recognition.lang=language.value;
+    try{recognition.start();}catch(e){status.textContent='Could not start microphone. Please try again.';}
+  });
+  stop.addEventListener('click',()=>{if(listening)recognition.stop();});
+  recognition.onstart=()=>{listening=true;start.disabled=true;stop.disabled=false;status.textContent={{ t.voice_listening|tojson }};};
+  recognition.onresult=(event)=>{
+    let interim='';
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const text=event.results[i][0].transcript;
+      if(event.results[i].isFinal)finalText+=text+' ';else interim+=text;
+    }
+    const spoken=finalText+interim;
+    details.value=baseText?(baseText+'\n'+spoken):spoken;
+  };
+  recognition.onerror=(event)=>{status.textContent='Voice recognition error: '+event.error;};
+  recognition.onend=()=>{listening=false;start.disabled=false;stop.disabled=true;status.textContent={{ t.voice_stopped|tojson }};};
+})();
+</script>
 {% elif page == 'details' %}
 <section class="welcome"><h1>{{ program.name }}</h1><p>{{ t.program_details }}</p></section><section class="panel"><div class="panel-header"><h2>{{ t.program_details }}</h2></div><div class="panel-body">
 <div class="detail-grid"><div class="detail-item"><div class="detail-label">{{ t.date }}</div><div class="detail-value">{{ program.date }}</div></div><div class="detail-item"><div class="detail-label">{{ t.station }}</div><div class="detail-value">{{ program.station }}</div></div><div class="detail-item"><div class="detail-label">{{ t.place }}</div><div class="detail-value">{{ program.place }}</div></div><div class="detail-item"><div class="detail-label">{{ t.attendees }}</div><div class="detail-value">{{ program.attendees }}</div></div></div>
@@ -259,7 +358,6 @@ def login():
     if logged_in():
         return redirect(url_for("home", lang=lang))
     next_url = request.values.get("next", "")
-    # Only permit local relative paths as the post-login destination.
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = url_for("home", lang=lang)
     message = ""
@@ -277,7 +375,7 @@ def login():
             return redirect(next_url)
         else:
             message = TEXT[lang]["login_error"]
-    return render_page("login", lang, page_endpoint="login", next_url=next_url,
+    return render_page("login", lang, next_url=next_url,
                        admin_configured=bool(ADMIN_PASSWORD), message=message, error=bool(message))
 
 @app.route("/logout")
@@ -296,7 +394,10 @@ def home():
     total_attendees = conn.execute("SELECT COALESCE(SUM(attendees),0) FROM programs").fetchone()[0]
     if query:
         term = f"%{query}%"
-        programs = conn.execute("""SELECT * FROM programs WHERE date LIKE ? OR station LIKE ? OR place LIKE ? OR name LIKE ? ORDER BY date DESC,id DESC""", (term, term, term, term)).fetchall()
+        programs = conn.execute(
+            "SELECT * FROM programs WHERE date LIKE ? OR station LIKE ? OR place LIKE ? OR name LIKE ? ORDER BY date DESC,id DESC",
+            (term, term, term, term)
+        ).fetchall()
     else:
         programs = conn.execute("SELECT * FROM programs ORDER BY date DESC,id DESC").fetchall()
     conn.close()
@@ -304,7 +405,7 @@ def home():
     if request.args.get("saved") == "1": message = TEXT[lang]["saved"]
     if request.args.get("updated") == "1": message = TEXT[lang]["updated"]
     if request.args.get("deleted") == "1": message = TEXT[lang]["deleted"]
-    return render_page("home", lang, page_endpoint="home", programs=programs,
+    return render_page("home", lang, programs=programs,
                        total_programs=total_programs, total_attendees=total_attendees,
                        query=query, message=message)
 
@@ -315,15 +416,13 @@ def validate_and_save_photos(files, existing_count=0):
     for f in uploads:
         if not allowed_file(f.filename):
             return None, "invalid_photo"
-        f.stream.seek(0, os.SEEK_END)
-        size = f.stream.tell()
-        f.stream.seek(0)
-        if size > MAX_PHOTO_SIZE:
-            return None, "invalid_photo"
     names = []
     try:
         for f in uploads:
-            ext = secure_filename(f.filename).rsplit(".", 1)[1].lower()
+            safe_name = secure_filename(f.filename)
+            if not safe_name or "." not in safe_name:
+                raise ValueError("Invalid filename")
+            ext = safe_name.rsplit(".", 1)[1].lower()
             filename = f"{uuid.uuid4().hex}.{ext}"
             f.save(os.path.join(UPLOAD_FOLDER, filename))
             names.append(filename)
@@ -350,29 +449,40 @@ def add_program():
             attendees = int(request.form.get("attendees", ""))
             if attendees < 0 or attendees > 10000000: raise ValueError
         except (ValueError, TypeError):
-            return render_page("form", lang, page_endpoint="add_program", mode="add", form=form,
+            return render_page("form", lang, mode="add", form=form,
                                form_action=url_for("add_program", lang=lang),
                                message=TEXT[lang]["required"], error=True), 400
         if not all([station, place, name]):
-            return render_page("form", lang, page_endpoint="add_program", mode="add", form=form,
+            return render_page("form", lang, mode="add", form=form,
                                form_action=url_for("add_program", lang=lang),
                                message=TEXT[lang]["required"], error=True), 400
         names, err = validate_and_save_photos(request.files.getlist("photos"))
         if err:
-            return render_page("form", lang, page_endpoint="add_program", mode="add", form=form,
+            return render_page("form", lang, mode="add", form=form,
                                form_action=url_for("add_program", lang=lang),
                                message=TEXT[lang][err], error=True), 400
-        conn = get_db()
-        cur = conn.execute("INSERT INTO programs(date,station,place,name,attendees,details,photo) VALUES(?,?,?,?,?,?,?)",
-                           (date, station, place, name, attendees, details, names[0] if names else ""))
-        pid = cur.lastrowid
-        for filename in names:
-            conn.execute("INSERT INTO program_photos(program_id,filename) VALUES(?,?)", (pid, filename))
-        conn.commit()
-        conn.close()
+        try:
+            conn = get_db()
+            cur = conn.execute(
+                "INSERT INTO programs(date,station,place,name,attendees,details,photo) VALUES(?,?,?,?,?,?,?)",
+                (date, station, place, name, attendees, details, names[0] if names else "")
+            )
+            pid = cur.lastrowid
+            for filename in names:
+                conn.execute("INSERT INTO program_photos(program_id,filename) VALUES(?,?)", (pid, filename))
+            conn.commit()
+            conn.close()
+        except Exception:
+            for filename in names:
+                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
+                except OSError: pass
+            app.logger.exception("Could not save program")
+            return render_page("form", lang, mode="add", form=form,
+                               form_action=url_for("add_program", lang=lang),
+                               message="Could not save program. Please try again.", error=True), 500
         return redirect(url_for("home", lang=lang, saved=1))
-    return render_page("form", lang, page_endpoint="add_program", mode="add", form={},
-                       form_action=url_for("add_program", lang=lang))
+    return render_page("form", lang, mode="add", form={},
+                       form_action=url_for("add_program", lang=lang), photos=[])
 
 @app.route("/program/<int:program_id>")
 @login_required
@@ -383,7 +493,7 @@ def program_details(program_id):
     photos = conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id", (program_id,)).fetchall()
     conn.close()
     if program is None: abort(404)
-    return render_page("details", lang, page_endpoint="program_details", program=program, photos=photos)
+    return render_page("details", lang, program=program, photos=photos)
 
 @app.route("/program/<int:program_id>/edit", methods=["GET", "POST"])
 @login_required
@@ -408,33 +518,42 @@ def edit_program(program_id):
             if attendees < 0 or attendees > 10000000: raise ValueError
         except (ValueError, TypeError):
             conn.close()
-            return render_page("form", lang, page_endpoint="edit_program", mode="edit", form=form,
-                               photos=photos, form_action=url_for("edit_program",program_id=program_id,lang=lang),
+            return render_page("form", lang, mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program",program_id=program_id,lang=lang),
                                message=TEXT[lang]["required"], error=True), 400
         if not all([station, place, name]):
             conn.close()
-            return render_page("form", lang, page_endpoint="edit_program", mode="edit", form=form,
-                               photos=photos, form_action=url_for("edit_program",program_id=program_id,lang=lang),
+            return render_page("form", lang, mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program",program_id=program_id,lang=lang),
                                message=TEXT[lang]["required"], error=True), 400
         names, err = validate_and_save_photos(request.files.getlist("photos"), existing_count=len(photos))
         if err:
             conn.close()
-            return render_page("form", lang, page_endpoint="edit_program", mode="edit", form=form,
-                               photos=photos, form_action=url_for("edit_program",program_id=program_id,lang=lang),
+            return render_page("form", lang, mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program",program_id=program_id,lang=lang),
                                message=TEXT[lang][err], error=True), 400
-        conn.execute("UPDATE programs SET date=?,station=?,place=?,name=?,attendees=?,details=? WHERE id=?",
-                     (date, station, place, name, attendees, details, program_id))
-        for filename in names:
-            conn.execute("INSERT INTO program_photos(program_id,filename) VALUES(?,?)", (program_id, filename))
-        # Keep legacy photo column aligned with the first photo if present.
-        first = conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id LIMIT 1", (program_id,)).fetchone()
-        conn.execute("UPDATE programs SET photo=? WHERE id=?", (first["filename"] if first else "", program_id))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("UPDATE programs SET date=?,station=?,place=?,name=?,attendees=?,details=? WHERE id=?",
+                         (date, station, place, name, attendees, details, program_id))
+            for filename in names:
+                conn.execute("INSERT INTO program_photos(program_id,filename) VALUES(?,?)", (program_id, filename))
+            first = conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id LIMIT 1", (program_id,)).fetchone()
+            conn.execute("UPDATE programs SET photo=? WHERE id=?", (first["filename"] if first else "", program_id))
+            conn.commit()
+            conn.close()
+        except Exception:
+            conn.close()
+            for filename in names:
+                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
+                except OSError: pass
+            app.logger.exception("Could not update program")
+            return render_page("form", lang, mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program",program_id=program_id,lang=lang),
+                               message="Could not update program. Please try again.", error=True), 500
         return redirect(url_for("program_details", program_id=program_id, lang=lang))
     form = dict(program)
     conn.close()
-    return render_page("form", lang, page_endpoint="edit_program", mode="edit", form=form, photos=photos,
+    return render_page("form", lang, mode="edit", form=form, photos=photos,
                        form_action=url_for("edit_program",program_id=program_id,lang=lang))
 
 @app.route("/program/<int:program_id>/delete", methods=["POST"])
@@ -480,7 +599,6 @@ def download_pdf(program_id):
     photos = conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id", (program_id,)).fetchall()
     conn.close()
     if program is None: abort(404)
-
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm,
                             topMargin=17*mm, bottomMargin=17*mm)
@@ -495,6 +613,7 @@ def download_pdf(program_id):
         Paragraph(escape(t["title"]), styles["Heading2"]),
         Spacer(1, 5*mm),
     ]
+    photo_label = "Photographs" if lang == "en" else "छायाचित्रे"
     rows = [
         [t["date"], program["date"]],
         [t["station"], program["station"]],
@@ -502,7 +621,7 @@ def download_pdf(program_id):
         [t["name"], program["name"]],
         [t["attendees"], str(program["attendees"])],
         [t["details"], program["details"] or "—"],
-        [t["photo_count"] if "photo_count" in t else ("Photographs" if lang == "en" else "छायाचित्रे"), str(len(photos))],
+        [photo_label, str(len(photos))],
     ]
     safe_rows = []
     for label, value in rows:
@@ -524,7 +643,6 @@ def download_pdf(program_id):
     if photos:
         story.append(PageBreak())
         story.append(Paragraph(escape(t["photo_page"]), styles["CyberPhotoTitle"]))
-        # Start photos on page 2. Keep one photo per block; pages continue as needed.
         for index, photo in enumerate(photos, start=1):
             path = os.path.join(UPLOAD_FOLDER, photo["filename"])
             if not os.path.isfile(path):
@@ -554,6 +672,10 @@ def security_headers(response):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Cache-Control"] = "no-store"
     return response
+
+@app.errorhandler(413)
+def too_large(error):
+    return "The complete upload request is too large. The current application limit is 50 MB total for the form and all photographs. Please choose smaller/compressed photos.", 413
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
