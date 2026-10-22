@@ -174,9 +174,34 @@ input,textarea,select{width:100%;background:#061126;border:1px solid #263d67;bor
 .login-box{max-width:440px;margin:45px auto}.footer{border-top:1px solid var(--line);text-align:center;color:var(--muted);padding:22px;margin-top:42px;font-size:11px;letter-spacing:1px}
 .hero{min-height:calc(100vh - 80px);display:grid;place-items:center;text-align:center;padding:35px 20px;position:relative;isolation:isolate}.hero-content{max-width:800px;animation:rise .9s both}.hero-orb{width:150px;height:150px;margin:0 auto 28px;position:relative;display:grid;place-items:center;border-radius:42px;transform:rotate(-8deg);background:linear-gradient(145deg,#153d7d,#07142d);border:1px solid #50e8ff99;box-shadow:0 0 35px #2dd9ff35,inset 0 0 25px #2dd9ff15;animation:float 4s ease-in-out infinite}.hero-orb:before,.hero-orb:after{content:"";position:absolute;inset:-14px;border:1px solid #43dfff60;border-radius:48px;animation:orbit 12s linear infinite}.hero-orb:after{inset:-26px;border-color:#7a75ff55;border-style:dashed;animation-direction:reverse;animation-duration:20s}.hero-orb span{font-size:76px;filter:drop-shadow(0 0 16px #42e8ff70);transform:rotate(8deg)}.hero h1{font-size:clamp(34px,7vw,66px);line-height:1.08;margin:0 0 17px;letter-spacing:-2px;background:linear-gradient(90deg,#fff,#77eaff 55%,#9b9cff);color:transparent;background-clip:text}.hero p{max-width:620px;margin:0 auto 27px;color:#b7c8e5;font-size:16px}.hero .button{padding:15px 23px;font-size:13px;letter-spacing:1px}.hero-tag{display:inline-block;color:var(--cyan);border:1px solid var(--line);background:#0b1a35aa;border-radius:30px;padding:7px 13px;font-size:10px;letter-spacing:2px;margin-bottom:20px}.glow-dot{position:absolute;width:5px;height:5px;border-radius:50%;background:var(--cyan);box-shadow:0 0 15px var(--cyan);animation:blink 2s infinite}.glow-dot.d1{left:12%;top:25%}.glow-dot.d2{right:13%;top:31%;animation-delay:.6s}.glow-dot.d3{left:22%;bottom:18%;animation-delay:1s}.glow-dot.d4{right:23%;bottom:22%;animation-delay:1.4s}
 @keyframes float{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-12px) rotate(-5deg)}}@keyframes orbit{to{transform:rotate(360deg)}}@keyframes rise{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}@keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+
+/* EXTRA CYBER MOTION EFFECTS */
+#cyber-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.72}
+.header,.container,.hero,.footer{position:relative;z-index:1}
+body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-height:260px;left:-12vw;top:35vh;border-radius:50%;background:radial-gradient(circle,#1b6cff22,transparent 68%);filter:blur(15px);pointer-events:none;z-index:0;animation:nebulaDrift 18s ease-in-out infinite alternate}
+.hero:before{content:"";position:absolute;inset:8% 5%;border-radius:50%;background:radial-gradient(ellipse,#173c7c1a,transparent 68%);pointer-events:none;animation:pulseGlow 6s ease-in-out infinite}
+.hero-orb{transform-style:preserve-3d;perspective:800px;box-shadow:0 0 35px #2dd9ff35,inset 0 0 25px #2dd9ff15,0 24px 55px #0006}
+.hero-orb span{transform:translateZ(32px) rotate(8deg);animation:shieldPulse 3.5s ease-in-out infinite}
+.panel,.stat-card,.detail-item,.photo-preview{transform-style:preserve-3d;transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.panel{position:relative}
+.panel:before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(115deg,transparent 10%,#42e8ff55 45%,#8d72ff55 60%,transparent 85%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;opacity:.45;background-size:220% 100%;animation:borderSweep 8s linear infinite}
+.stat-card:hover,.detail-item:hover,.photo-preview:hover{border-color:#42e8ff88;box-shadow:0 18px 45px #0004,0 0 22px #42e8ff12}
+.button{position:relative;overflow:hidden;isolation:isolate}
+.button:before{content:"";position:absolute;top:-80%;left:-45%;width:35%;height:260%;transform:rotate(25deg);background:linear-gradient(90deg,transparent,#ffffff80,transparent);transition:left .65s ease;z-index:-1}
+.button:hover:before{left:130%}
+.logo{animation:logoFloat 5s ease-in-out infinite}
+@keyframes nebulaDrift{0%{transform:translate3d(0,0,0) scale(1)}100%{transform:translate3d(25vw,-12vh,0) scale(1.3)}}
+@keyframes pulseGlow{0%,100%{opacity:.35;transform:scale(.94)}50%{opacity:.9;transform:scale(1.06)}}
+@keyframes shieldPulse{0%,100%{filter:drop-shadow(0 0 12px #42e8ff55)}50%{filter:drop-shadow(0 0 26px #42e8ffbb)}}
+@keyframes borderSweep{0%{background-position:200% 0;opacity:.2}50%{opacity:.7}100%{background-position:-20% 0;opacity:.2}}
+@keyframes logoFloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3px) rotate(3deg)}}
+@media(max-width:700px){#cyber-canvas{opacity:.4}.panel:before{animation:none}.hero:before{inset:0}}
+@media(prefers-reduced-motion:reduce){#cyber-canvas{display:none}body:after,.hero:before,.hero-orb span,.logo{animation:none!important}.panel:before{animation:none!important}}
+
 @media(max-width:650px){.header-inner{padding:12px}.brand{font-size:17px}.brand-subtitle{font-size:9px;letter-spacing:1px}.logo{width:38px;height:38px}.container{margin-top:18px;padding:0 12px}.welcome h1{font-size:26px}.stats,.detail-grid{grid-template-columns:1fr}.panel-body{padding:14px}.search-form{flex-direction:column}.search-form .button{width:100%}.hero-orb{width:120px;height:120px;border-radius:34px}.hero-orb span{font-size:60px}.hero p{font-size:14px}.nav{gap:5px}.nav a{padding:6px 8px;font-size:11px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}
 </style></head><body>
+<canvas id="cyber-canvas" aria-hidden="true"></canvas>
 <header class="header"><div class="header-inner"><a href="{{ url_for('welcome',lang=lang) }}" class="brand-wrap"><div class="logo">🛡️</div><div><div class="brand">{{ t.title }}</div><div class="brand-subtitle">{{ t.subtitle }}</div></div></a>
 <div class="nav">{% if logged_in %}<a href="{{ url_for('home',lang=lang) }}">{{ t.all_programs }}</a><a href="{{ url_for('add_program',lang=lang) }}">+ {{ t.add_program }}</a><a href="{{ url_for('logout',lang=lang) }}">{{ t.logout }}</a>{% elif page != 'login' %}<a href="{{ url_for('login',lang=lang) }}">{{ t.sign_in }}</a>{% endif %}
 <a href="{{ url_for(page_link,lang='en') }}">English</a><a href="{{ url_for(page_link,lang='mr') }}">मराठी</a></div></div></header>
@@ -238,7 +263,20 @@ start.addEventListener('click',()=>{if(listening)return;baseText=details.value.t
 <div class="actions"><a class="button" href="{{ url_for('download_pdf',program_id=program.id,lang=lang) }}">{{ t.download_pdf }}</a><a class="button secondary" href="{{ url_for('edit_program',program_id=program.id,lang=lang) }}">{{ t.edit }}</a><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.back }}</a>
 <form method="POST" action="{{ url_for('delete_program',program_id=program.id,lang=lang) }}" onsubmit="return confirm({{ t.confirm_delete|tojson }});"><button class="button danger" type="submit">{{ t.delete }}</button></form></div>
 </div></section>
-{% endif %}</main><footer class="footer">{{ t.footer }}</footer></body></html>
+{% endif %}</main><footer class="footer">{{ t.footer }}</footer>
+<script>
+/* Lightweight animated network particles + gentle 3D card tilt. */
+(function(){
+ const canvas=document.getElementById('cyber-canvas');
+ if(!canvas || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+ const ctx=canvas.getContext('2d'); if(!ctx)return;
+ let w=0,h=0,dpr=1,points=[],mouse={x:-1000,y:-1000};
+ function resize(){dpr=Math.min(window.devicePixelRatio||1,1.7);w=innerWidth;h=innerHeight;canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.setTransform(dpr,0,0,dpr,0,0);const count=Math.min(75,Math.max(28,Math.floor(w/18)));points=Array.from({length:count},()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-.5)*.42,vy:(Math.random()-.5)*.42,r:Math.random()*1.7+.5}));}
+ function draw(){ctx.clearRect(0,0,w,h);for(let i=0;i<points.length;i++){const p=points[i];p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>w)p.vx*=-1;if(p.y<0||p.y>h)p.vy*=-1;const dx=mouse.x-p.x,dy=mouse.y-p.y,dist=Math.hypot(dx,dy);if(dist<110){p.x-=dx*.0008;p.y-=dy*.0008}ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle='rgba(66,232,255,.72)';ctx.fill();for(let j=i+1;j<points.length;j++){const q=points[j],dd=Math.hypot(p.x-q.x,p.y-q.y);if(dd<115){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.strokeStyle='rgba(75,150,255,'+(1-dd/115)*.19+')';ctx.lineWidth=.7;ctx.stroke()}}}requestAnimationFrame(draw)}
+ window.addEventListener('resize',resize,{passive:true});window.addEventListener('pointermove',e=>{mouse.x=e.clientX;mouse.y=e.clientY},{passive:true});resize();draw();
+})();
+(function(){if(!window.matchMedia('(hover:hover) and (pointer:fine)').matches||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;document.querySelectorAll('.stat-card,.detail-item,.photo-preview').forEach(el=>{el.addEventListener('pointermove',e=>{const r=el.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;el.style.transform='perspective(850px) rotateX('+((.5-y)*5)+'deg) rotateY('+((x-.5)*6)+'deg) translateY(-2px)'});el.addEventListener('pointerleave',()=>{el.style.transform=''});});})();
+</script></body></html>
 """
 
 @app.route("/")
