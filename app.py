@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import hmac
 import uuid
 from datetime import datetime, timedelta
@@ -12,6 +11,7 @@ from flask import (
     send_from_directory, send_file, abort, session
 )
 from werkzeug.utils import secure_filename
+from supabase import create_client
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
@@ -19,7 +19,6 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or (uuid.uuid4().hex + u
 app.permanent_session_lifetime = timedelta(hours=8)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "programs.db")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -99,33 +98,29 @@ TEXT = {
     }
 }
 
-def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+# Supabase is the cloud database. Set SUPABASE_URL and SUPABASE_SECRET_KEY
+# in Render's Environment settings. Never expose the secret key in browser code.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+supabase = None
+
+if SUPABASE_URL and SUPABASE_SECRET_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
+    except Exception:
+        app.logger.exception("Could not initialize Supabase client")
+
+def get_supabase():
+    if supabase is None:
+        raise RuntimeError(
+            "Supabase is not configured. Set SUPABASE_URL and "
+            "SUPABASE_SECRET_KEY in Render Environment settings."
+        )
+    return supabase
 
 def init_db():
-    conn = get_db()
-    conn.execute("""CREATE TABLE IF NOT EXISTS programs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, station TEXT NOT NULL,
-        place TEXT NOT NULL, name TEXT NOT NULL, attendees INTEGER NOT NULL DEFAULT 0,
-        details TEXT DEFAULT '', photo TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS program_photos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, program_id INTEGER NOT NULL, filename TEXT NOT NULL,
-        FOREIGN KEY(program_id) REFERENCES programs(id) ON DELETE CASCADE
-    )""")
-    conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT DEFAULT '')")
-    old_rows = conn.execute("SELECT id, photo FROM programs WHERE COALESCE(photo,'') != ''").fetchall()
-    for row in old_rows:
-        found = conn.execute("SELECT 1 FROM program_photos WHERE program_id=? AND filename=?",
-                             (row["id"], row["photo"])).fetchone()
-        if not found:
-            conn.execute("INSERT INTO program_photos(program_id,filename) VALUES (?,?)",
-                         (row["id"], row["photo"]))
-    conn.commit()
-    conn.close()
+    # Tables are created in Supabase SQL Editor; do not create a local SQLite DB.
+    pass
 
 init_db()
 
@@ -355,16 +350,24 @@ def logout():
 def home():
     lang = get_language()
     query = request.args.get("q", "").strip()
-    conn = get_db()
-    total_programs = conn.execute("SELECT COUNT(*) FROM programs").fetchone()[0]
-    total_attendees = conn.execute("SELECT COALESCE(SUM(attendees),0) FROM programs").fetchone()[0]
-    if query:
-        term = f"%{query}%"
-        programs = conn.execute("SELECT * FROM programs WHERE date LIKE ? OR station LIKE ? OR place LIKE ? OR name LIKE ? ORDER BY date DESC,id DESC",
-                                (term,term,term,term)).fetchall()
-    else:
-        programs = conn.execute("SELECT * FROM programs ORDER BY date DESC,id DESC").fetchall()
-    conn.close()
+    try:
+        db = get_supabase()
+        all_rows = db.table("programs").select("*").order("date", desc=True).order("id", desc=True).execute().data or []
+        total_programs = len(all_rows)
+        total_attendees = sum(int(row.get("attendees") or 0) for row in all_rows)
+        if query:
+            needle = query.casefold()
+            programs = [
+                row for row in all_rows
+                if any(needle in str(row.get(field) or "").casefold()
+                       for field in ("date", "station", "place", "name"))
+            ]
+        else:
+            programs = all_rows
+    except Exception:
+        app.logger.exception("Could not load programs from Supabase")
+        return "Database connection failed. Check Render logs and Supabase setup.", 500
+
     message = ""
     if request.args.get("saved") == "1": message = TEXT[lang]["saved"]
     if request.args.get("updated") == "1": message = TEXT[lang]["updated"]
@@ -397,99 +400,151 @@ def validate_and_save_photos(files, existing_count=0):
 def add_program():
     lang = get_language()
     if request.method == "POST":
-        form=request.form.to_dict(); date=request.form.get("date","").strip()
-        station=request.form.get("station","").strip(); place=request.form.get("place","").strip()
-        name=request.form.get("name","").strip(); details=request.form.get("details","").strip()
+        form = request.form.to_dict()
+        date = request.form.get("date", "").strip()
+        station = request.form.get("station", "").strip()
+        place = request.form.get("place", "").strip()
+        name = request.form.get("name", "").strip()
+        details = request.form.get("details", "").strip()
         try:
-            datetime.strptime(date,"%Y-%m-%d"); attendees=int(request.form.get("attendees",""))
-            if attendees<0 or attendees>10000000: raise ValueError
-        except (ValueError,TypeError):
-            return render_page("form",lang,page_link="home",mode="add",form=form,photos=[],form_action=url_for("add_program",lang=lang),message=TEXT[lang]["required"],error=True),400
-        if not all([station,place,name]):
-            return render_page("form",lang,page_link="home",mode="add",form=form,photos=[],form_action=url_for("add_program",lang=lang),message=TEXT[lang]["required"],error=True),400
-        names,err=validate_and_save_photos(request.files.getlist("photos"))
+            datetime.strptime(date, "%Y-%m-%d")
+            attendees = int(request.form.get("attendees", ""))
+            if attendees < 0 or attendees > 10000000: raise ValueError
+        except (ValueError, TypeError):
+            return render_page("form", lang, page_link="home", mode="add", form=form, photos=[],
+                               form_action=url_for("add_program", lang=lang),
+                               message=TEXT[lang]["required"], error=True), 400
+        if not all([station, place, name]):
+            return render_page("form", lang, page_link="home", mode="add", form=form, photos=[],
+                               form_action=url_for("add_program", lang=lang),
+                               message=TEXT[lang]["required"], error=True), 400
+        names, err = validate_and_save_photos(request.files.getlist("photos"))
         if err:
-            return render_page("form",lang,page_link="home",mode="add",form=form,photos=[],form_action=url_for("add_program",lang=lang),message=TEXT[lang][err],error=True),400
+            return render_page("form", lang, page_link="home", mode="add", form=form, photos=[],
+                               form_action=url_for("add_program", lang=lang),
+                               message=TEXT[lang][err], error=True), 400
         try:
-            conn=get_db()
-            cur=conn.execute("INSERT INTO programs(date,station,place,name,attendees,details,photo) VALUES(?,?,?,?,?,?,?)",
-                              (date,station,place,name,attendees,details,names[0] if names else ""))
-            pid=cur.lastrowid
-            for filename in names: conn.execute("INSERT INTO program_photos(program_id,filename) VALUES(?,?)",(pid,filename))
-            conn.commit(); conn.close()
+            db = get_supabase()
+            inserted = db.table("programs").insert({
+                "date": date, "station": station, "place": place, "name": name,
+                "attendees": attendees, "details": details,
+                "photo": names[0] if names else ""
+            }).execute().data
+            if not inserted:
+                raise RuntimeError("Supabase did not return the inserted program.")
+            pid = inserted[0]["id"]
+            if names:
+                db.table("program_photos").insert([
+                    {"program_id": pid, "filename": filename} for filename in names
+                ]).execute()
         except Exception:
             for filename in names:
-                try: os.remove(os.path.join(UPLOAD_FOLDER,filename))
+                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
                 except OSError: pass
-            app.logger.exception("Could not save program")
-            return render_page("form",lang,page_link="home",mode="add",form=form,photos=[],form_action=url_for("add_program",lang=lang),message="Could not save program. Please try again.",error=True),500
-        return redirect(url_for("home",lang=lang,saved=1))
-    return render_page("form",lang,page_link="home",mode="add",form={},photos=[],form_action=url_for("add_program",lang=lang))
+            app.logger.exception("Could not save program to Supabase")
+            return render_page("form", lang, page_link="home", mode="add", form=form, photos=[],
+                               form_action=url_for("add_program", lang=lang),
+                               message="Could not save program. Check Supabase configuration and try again.",
+                               error=True), 500
+        return redirect(url_for("home", lang=lang, saved=1))
+    return render_page("form", lang, page_link="home", mode="add", form={}, photos=[],
+                       form_action=url_for("add_program", lang=lang))
 
 @app.route("/program/<int:program_id>")
 @login_required
 def program_details(program_id):
-    lang=get_language(); conn=get_db()
-    program=conn.execute("SELECT * FROM programs WHERE id=?",(program_id,)).fetchone()
-    photos=conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id",(program_id,)).fetchall()
-    conn.close()
+    lang = get_language()
+    try:
+        db = get_supabase()
+        result = db.table("programs").select("*").eq("id", program_id).limit(1).execute().data or []
+        program = result[0] if result else None
+        photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
+    except Exception:
+        app.logger.exception("Could not load program details from Supabase")
+        return "Database connection failed. Check Render logs and Supabase setup.", 500
     if program is None: abort(404)
-    return render_page("details",lang,page_link="home",program=program,photos=photos)
+    return render_page("details", lang, page_link="home", program=program, photos=photos)
 
-@app.route("/program/<int:program_id>/edit",methods=["GET","POST"])
+@app.route("/program/<int:program_id>/edit", methods=["GET","POST"])
 @login_required
 def edit_program(program_id):
-    lang=get_language(); conn=get_db()
-    program=conn.execute("SELECT * FROM programs WHERE id=?",(program_id,)).fetchone()
-    photos=conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id",(program_id,)).fetchall()
-    if program is None: conn.close(); abort(404)
-    if request.method=="POST":
-        form=request.form.to_dict(); date=request.form.get("date","").strip()
-        station=request.form.get("station","").strip(); place=request.form.get("place","").strip()
-        name=request.form.get("name","").strip(); details=request.form.get("details","").strip()
-        try:
-            datetime.strptime(date,"%Y-%m-%d"); attendees=int(request.form.get("attendees",""))
-            if attendees<0 or attendees>10000000: raise ValueError
-        except (ValueError,TypeError):
-            conn.close()
-            return render_page("form",lang,page_link="home",mode="edit",form=form,photos=photos,form_action=url_for("edit_program",program_id=program_id,lang=lang),message=TEXT[lang]["required"],error=True),400
-        if not all([station,place,name]):
-            conn.close()
-            return render_page("form",lang,page_link="home",mode="edit",form=form,photos=photos,form_action=url_for("edit_program",program_id=program_id,lang=lang),message=TEXT[lang]["required"],error=True),400
-        names,err=validate_and_save_photos(request.files.getlist("photos"),existing_count=len(photos))
-        if err:
-            conn.close()
-            return render_page("form",lang,page_link="home",mode="edit",form=form,photos=photos,form_action=url_for("edit_program",program_id=program_id,lang=lang),message=TEXT[lang][err],error=True),400
-        try:
-            conn.execute("UPDATE programs SET date=?,station=?,place=?,name=?,attendees=?,details=? WHERE id=?",
-                         (date,station,place,name,attendees,details,program_id))
-            for filename in names: conn.execute("INSERT INTO program_photos(program_id,filename) VALUES(?,?)",(program_id,filename))
-            first=conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id LIMIT 1",(program_id,)).fetchone()
-            conn.execute("UPDATE programs SET photo=? WHERE id=?",(first["filename"] if first else "",program_id))
-            conn.commit(); conn.close()
-        except Exception:
-            conn.close()
-            for filename in names:
-                try: os.remove(os.path.join(UPLOAD_FOLDER,filename))
-                except OSError: pass
-            app.logger.exception("Could not update program")
-            return render_page("form",lang,page_link="home",mode="edit",form=form,photos=photos,form_action=url_for("edit_program",program_id=program_id,lang=lang),message="Could not update program. Please try again.",error=True),500
-        return redirect(url_for("program_details",program_id=program_id,lang=lang))
-    form=dict(program); conn.close()
-    return render_page("form",lang,page_link="home",mode="edit",form=form,photos=photos,form_action=url_for("edit_program",program_id=program_id,lang=lang))
+    lang = get_language()
+    try:
+        db = get_supabase()
+        found = db.table("programs").select("*").eq("id", program_id).limit(1).execute().data or []
+        program = found[0] if found else None
+        photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
+    except Exception:
+        app.logger.exception("Could not load program for editing")
+        return "Database connection failed. Check Render logs and Supabase setup.", 500
+    if program is None: abort(404)
 
-@app.route("/program/<int:program_id>/delete",methods=["POST"])
+    if request.method == "POST":
+        form = request.form.to_dict()
+        date = request.form.get("date", "").strip()
+        station = request.form.get("station", "").strip()
+        place = request.form.get("place", "").strip()
+        name = request.form.get("name", "").strip()
+        details = request.form.get("details", "").strip()
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+            attendees = int(request.form.get("attendees", ""))
+            if attendees < 0 or attendees > 10000000: raise ValueError
+        except (ValueError, TypeError):
+            return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program", program_id=program_id, lang=lang),
+                               message=TEXT[lang]["required"], error=True), 400
+        if not all([station, place, name]):
+            return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program", program_id=program_id, lang=lang),
+                               message=TEXT[lang]["required"], error=True), 400
+        names, err = validate_and_save_photos(request.files.getlist("photos"), existing_count=len(photos))
+        if err:
+            return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program", program_id=program_id, lang=lang),
+                               message=TEXT[lang][err], error=True), 400
+        try:
+            db.table("programs").update({
+                "date": date, "station": station, "place": place, "name": name,
+                "attendees": attendees, "details": details
+            }).eq("id", program_id).execute()
+            if names:
+                db.table("program_photos").insert([
+                    {"program_id": program_id, "filename": filename} for filename in names
+                ]).execute()
+            updated_photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
+            db.table("programs").update({"photo": updated_photos[0]["filename"] if updated_photos else ""}).eq("id", program_id).execute()
+        except Exception:
+            for filename in names:
+                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
+                except OSError: pass
+            app.logger.exception("Could not update program in Supabase")
+            return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
+                               form_action=url_for("edit_program", program_id=program_id, lang=lang),
+                               message="Could not update program. Check Supabase configuration and try again.",
+                               error=True), 500
+        return redirect(url_for("program_details", program_id=program_id, lang=lang))
+
+    return render_page("form", lang, page_link="home", mode="edit", form=program, photos=photos,
+                       form_action=url_for("edit_program", program_id=program_id, lang=lang))
+
+@app.route("/program/<int:program_id>/delete", methods=["POST"])
 @login_required
 def delete_program(program_id):
-    conn=get_db(); program=conn.execute("SELECT id FROM programs WHERE id=?",(program_id,)).fetchone()
-    photos=conn.execute("SELECT filename FROM program_photos WHERE program_id=?",(program_id,)).fetchall()
-    if program is None: conn.close(); abort(404)
-    conn.execute("DELETE FROM program_photos WHERE program_id=?",(program_id,))
-    conn.execute("DELETE FROM programs WHERE id=?",(program_id,)); conn.commit(); conn.close()
+    try:
+        db = get_supabase()
+        found = db.table("programs").select("id").eq("id", program_id).limit(1).execute().data or []
+        if not found: abort(404)
+        photos = db.table("program_photos").select("filename").eq("program_id", program_id).execute().data or []
+        db.table("program_photos").delete().eq("program_id", program_id).execute()
+        db.table("programs").delete().eq("id", program_id).execute()
+    except Exception:
+        app.logger.exception("Could not delete program from Supabase")
+        return "Could not delete program. Check Supabase configuration and logs.", 500
     for row in photos:
-        try: os.remove(os.path.join(UPLOAD_FOLDER,row["filename"]))
+        try: os.remove(os.path.join(UPLOAD_FOLDER, row["filename"]))
         except OSError: pass
-    return redirect(url_for("home",lang=get_language(),deleted=1))
+    return redirect(url_for("home", lang=get_language(), deleted=1))
 
 @app.route("/uploads/<path:filename>")
 @login_required
@@ -509,10 +564,15 @@ def download_pdf(program_id):
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
     except ImportError:
         return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.",500
-    lang=get_language(); t=TEXT[lang]; conn=get_db()
-    program=conn.execute("SELECT * FROM programs WHERE id=?",(program_id,)).fetchone()
-    photos=conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id",(program_id,)).fetchall()
-    conn.close()
+    lang=get_language(); t=TEXT[lang]
+    try:
+        db = get_supabase()
+        found = db.table("programs").select("*").eq("id", program_id).limit(1).execute().data or []
+        program = found[0] if found else None
+        photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
+    except Exception:
+        app.logger.exception("Could not load PDF report data from Supabase")
+        return "Database connection failed. Check Render logs and Supabase setup.", 500
     if program is None: abort(404)
     buffer=BytesIO(); doc=SimpleDocTemplate(buffer,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=17*mm,bottomMargin=17*mm)
     styles=getSampleStyleSheet()
