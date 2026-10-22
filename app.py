@@ -506,41 +506,151 @@ def download_pdf(program_id):
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import mm
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether, HRFlowable
     except ImportError:
-        return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.",500
-    lang=get_language(); t=TEXT[lang]; conn=get_db()
-    program=conn.execute("SELECT * FROM programs WHERE id=?",(program_id,)).fetchone()
-    photos=conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id",(program_id,)).fetchall()
+        return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.", 500
+
+    lang = get_language()
+    t = TEXT[lang]
+    conn = get_db()
+    program = conn.execute("SELECT * FROM programs WHERE id=?", (program_id,)).fetchone()
+    photos = conn.execute("SELECT filename FROM program_photos WHERE program_id=? ORDER BY id", (program_id,)).fetchall()
     conn.close()
-    if program is None: abort(404)
-    buffer=BytesIO(); doc=SimpleDocTemplate(buffer,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=17*mm,bottomMargin=17*mm)
-    styles=getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="CyberTitle",parent=styles["Title"],fontName="Helvetica-Bold",fontSize=17,leading=22,alignment=1,textColor=colors.HexColor("#236b9b"),spaceAfter=8))
-    styles.add(ParagraphStyle(name="CyberSmall",parent=styles["Normal"],fontSize=9,leading=13))
-    styles.add(ParagraphStyle(name="CyberPhotoTitle",parent=styles["Heading2"],alignment=1,textColor=colors.HexColor("#236b9b"),spaceAfter=10))
-    story=[Paragraph(escape(t["report"]),styles["CyberTitle"]),Paragraph(escape(t["title"]),styles["Heading2"]),Spacer(1,5*mm)]
-    photo_label="Photographs" if lang=="en" else "छायाचित्रे"
-    rows=[[t["date"],program["date"]],[t["station"],program["station"]],[t["place"],program["place"]],
-          [t["name"],program["name"]],[t["attendees"],str(program["attendees"])],
-          [t["details"],program["details"] or "—"],[photo_label,str(len(photos))]]
-    safe_rows=[[Paragraph("<b>"+escape(str(label))+"</b>",styles["CyberSmall"]),
-                Paragraph(escape(str(value)).replace("\n","<br/>"),styles["CyberSmall"])] for label,value in rows]
-    table=Table(safe_rows,colWidths=[42*mm,125*mm])
-    table.setStyle(TableStyle([("BACKGROUND",(0,0),(0,-1),colors.HexColor("#e8f3fb")),("GRID",(0,0),(-1,-1),0.5,colors.HexColor("#b8c9dc")),("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7)]))
-    story.extend([table,Spacer(1,4*mm),Paragraph(escape(t["page_info"]),styles["CyberSmall"])])
+    if program is None:
+        abort(404)
+
+    buffer = BytesIO()
+    page_w, page_h = A4
+    navy = colors.HexColor("#07152f")
+    blue = colors.HexColor("#1266b3")
+    cyan = colors.HexColor("#17bde5")
+    pale = colors.HexColor("#edf7ff")
+    ink = colors.HexColor("#14253e")
+    muted = colors.HexColor("#5d7189")
+
+    def decorate_page(canvas, doc):
+        canvas.saveState()
+        # Clean report page with a deep-blue header and subtle layered, dimensional accents.
+        canvas.setFillColor(colors.HexColor("#f5f9ff"))
+        canvas.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+        canvas.setFillColor(navy)
+        canvas.rect(0, page_h - 31*mm, page_w, 31*mm, fill=1, stroke=0)
+        canvas.setFillColor(blue)
+        canvas.circle(page_w - 13*mm, page_h - 7*mm, 25*mm, fill=1, stroke=0)
+        canvas.setFillColor(cyan)
+        canvas.circle(page_w - 11*mm, page_h - 6*mm, 15*mm, fill=1, stroke=0)
+        canvas.setFillColor(colors.white)
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.drawString(18*mm, page_h - 11*mm, "CYBERPOLICE ASSIST  /  CYBER AWARENESS")
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#bfeaff"))
+        canvas.drawString(18*mm, page_h - 18*mm, "PROGRAM RECORD  •  OFFICIAL REPORT")
+        # Footer rail, page number and small luminous accent.
+        canvas.setStrokeColor(colors.HexColor("#c8d9ed"))
+        canvas.setLineWidth(0.7)
+        canvas.line(18*mm, 13*mm, page_w - 18*mm, 13*mm)
+        canvas.setFillColor(blue)
+        canvas.roundRect(18*mm, 11.5*mm, 17*mm, 2*mm, 1*mm, fill=1, stroke=0)
+        canvas.setFillColor(muted)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(18*mm, 7*mm, "PRIVATE ADMIN AREA  •  CYBER AWARENESS")
+        canvas.drawRightString(page_w - 18*mm, 7*mm, f"PAGE {doc.page}")
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm,
+                            topMargin=39*mm, bottomMargin=20*mm, title=f"CyberPolice Assist - {program['name']}")
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="CyberMain", parent=styles["Title"], fontName="Helvetica-Bold",
+                              fontSize=20, leading=25, alignment=0, textColor=navy, spaceAfter=5))
+    styles.add(ParagraphStyle(name="CyberSub", parent=styles["Normal"], fontSize=9, leading=13,
+                              textColor=muted, spaceAfter=12))
+    styles.add(ParagraphStyle(name="CyberLabel", parent=styles["Normal"], fontName="Helvetica-Bold",
+                              fontSize=8, leading=11, textColor=blue))
+    styles.add(ParagraphStyle(name="CyberValue", parent=styles["Normal"], fontSize=9, leading=13,
+                              textColor=ink, wordWrap="CJK"))
+    styles.add(ParagraphStyle(name="CyberPhotoTitle", parent=styles["Heading2"], fontName="Helvetica-Bold",
+                              fontSize=15, leading=19, textColor=navy, spaceAfter=8))
+    styles.add(ParagraphStyle(name="CyberPhotoCaption", parent=styles["Normal"], fontName="Helvetica-Bold",
+                              fontSize=9, leading=12, textColor=blue, alignment=1))
+    styles.add(ParagraphStyle(name="CyberTiny", parent=styles["Normal"], fontSize=7, leading=10, textColor=muted))
+
+    story = [Paragraph(escape(t["report"]), styles["CyberMain"]),
+             Paragraph(escape(t["title"]), styles["CyberSub"]),
+             HRFlowable(width="100%", thickness=1.2, color=cyan, spaceAfter=7*mm)]
+
+    photo_label = "Photographs" if lang == "en" else "छायाचित्रे"
+    rows = [
+        [t["date"], program["date"]],
+        [t["station"], program["station"]],
+        [t["place"], program["place"]],
+        [t["name"], program["name"]],
+        [t["attendees"], str(program["attendees"])],
+        [t["details"], program["details"] or "—"],
+        [photo_label, str(len(photos))],
+    ]
+    data = [[Paragraph(escape(str(label)), styles["CyberLabel"]),
+             Paragraph(escape(str(value)).replace("\n", "<br/>"), styles["CyberValue"])] for label, value in rows]
+    table = Table(data, colWidths=[43*mm, 124*mm], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), colors.white),
+        ("BACKGROUND", (0,0), (0,-1), pale),
+        ("BOX", (0,0), (-1,-1), 0.8, colors.HexColor("#b9d0e8")),
+        ("INNERGRID", (0,0), (-1,-1), 0.45, colors.HexColor("#d8e5f2")),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LEFTPADDING", (0,0), (-1,-1), 10),
+        ("RIGHTPADDING", (0,0), (-1,-1), 10),
+        ("TOPPADDING", (0,0), (-1,-1), 10),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 10),
+    ]))
+    story.extend([table, Spacer(1, 7*mm)])
+    # Dimensional summary tile.
+    summary = Table([[Paragraph(f'<font color="{blue.hexval()}"><b>{escape(t["attendees"])}</b></font>', styles["CyberLabel"]),
+                      Paragraph(f'<font size="18"><b>{int(program["attendees"]):,}</b></font>', styles["CyberValue"]),
+                      Paragraph(f'<font color="{blue.hexval()}"><b>{escape(photo_label)}</b></font>', styles["CyberLabel"]),
+                      Paragraph(f'<font size="18"><b>{len(photos)}</b></font>', styles["CyberValue"])]],
+                    colWidths=[35*mm, 48*mm, 35*mm, 49*mm])
+    summary.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#e4f2ff")),
+        ("BOX", (0,0), (-1,-1), 1, colors.HexColor("#8bbde8")),
+        ("LINEBEFORE", (1,0), (1,0), 0.8, colors.HexColor("#b1d5f3")),
+        ("LINEBEFORE", (2,0), (2,0), 0.8, colors.HexColor("#b1d5f3")),
+        ("LINEBEFORE", (3,0), (3,0), 0.8, colors.HexColor("#b1d5f3")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("LEFTPADDING", (0,0), (-1,-1), 8), ("RIGHTPADDING", (0,0), (-1,-1), 8),
+        ("TOPPADDING", (0,0), (-1,-1), 10), ("BOTTOMPADDING", (0,0), (-1,-1), 10),
+    ]))
+    story.extend([summary, Spacer(1, 6*mm), Paragraph(escape(t["page_info"]), styles["CyberTiny"])])
+
     if photos:
-        story.extend([PageBreak(),Paragraph(escape(t["photo_page"]),styles["CyberPhotoTitle"])])
-        for index,photo in enumerate(photos,start=1):
-            path=os.path.join(UPLOAD_FOLDER,photo["filename"])
-            if not os.path.isfile(path): continue
+        story.extend([PageBreak(), Paragraph(escape(t["photo_page"]), styles["CyberPhotoTitle"]),
+                      Paragraph("PHOTO EVIDENCE GALLERY  •  PROGRAM ATTACHMENTS", styles["CyberTiny"]), Spacer(1, 5*mm)])
+        for index, photo in enumerate(photos, start=1):
+            path = os.path.join(UPLOAD_FOLDER, photo["filename"])
+            if not os.path.isfile(path):
+                continue
             try:
-                img=Image(path); img._restrictSize(165*mm,220*mm)
-                story.append(KeepTogether([Paragraph(f"{escape(t['photos'])} {index}",styles["Heading3"]),img,Spacer(1,5*mm)]))
-            except Exception: continue
-    story.extend([Spacer(1,3*mm),Paragraph(escape(t["report_generated"])+": "+datetime.now().strftime("%Y-%m-%d %H:%M"),styles["CyberSmall"])])
-    doc.build(story); buffer.seek(0)
-    return send_file(buffer,mimetype="application/pdf",as_attachment=True,download_name=f"program_report_{program_id}.pdf")
+                img = Image(path)
+                img._restrictSize(150*mm, 175*mm)
+                card = Table([[img], [Paragraph(f"{escape(photo_label)} {index:02d}", styles["CyberPhotoCaption"])]],
+                             colWidths=[160*mm], hAlign="CENTER")
+                card.setStyle(TableStyle([
+                    ("BACKGROUND", (0,0), (-1,-1), colors.white),
+                    ("BOX", (0,0), (-1,-1), 1.2, colors.HexColor("#8bbde8")),
+                    ("LINEBELOW", (0,0), (-1,0), 3, cyan),
+                    ("ALIGN", (0,0), (-1,-1), "CENTER"),
+                    ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+                    ("LEFTPADDING", (0,0), (-1,-1), 8), ("RIGHTPADDING", (0,0), (-1,-1), 8),
+                    ("TOPPADDING", (0,0), (-1,-1), 8), ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+                ]))
+                story.append(KeepTogether([card, Spacer(1, 7*mm)]))
+            except Exception:
+                app.logger.exception("Could not add photograph to PDF report")
+
+    story.extend([Spacer(1, 4*mm), Paragraph(escape(t["report_generated"]) + ": " + datetime.now().strftime("%Y-%m-%d %H:%M"), styles["CyberTiny"])])
+    doc.build(story, onFirstPage=decorate_page, onLaterPages=decorate_page)
+    buffer.seek(0)
+    return send_file(buffer, mimetype="application/pdf", as_attachment=True,
+                     download_name=f"program_report_{program_id}.pdf")
 
 @app.after_request
 def security_headers(response):
