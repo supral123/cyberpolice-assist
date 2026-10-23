@@ -172,6 +172,8 @@ input,textarea,select{width:100%;background:#061126;border:1px solid #263d67;bor
 
 /* EXTRA CYBER MOTION EFFECTS */
 #cyber-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.72}
+/* Slow, visible cyber scan beam moving down the page */
+.cyber-scanline{position:fixed;left:0;right:0;top:-24vh;height:20vh;pointer-events:none;z-index:0;opacity:.38;background:linear-gradient(180deg,transparent,rgba(66,232,255,.055) 35%,rgba(66,232,255,.13) 50%,rgba(83,136,255,.06) 65%,transparent);filter:blur(2px);animation:scanSweep 16s linear infinite}
 .header,.container,.hero,.footer{position:relative;z-index:1}
 body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-height:260px;left:-12vw;top:35vh;border-radius:50%;background:radial-gradient(circle,#1b6cff22,transparent 68%);filter:blur(15px);pointer-events:none;z-index:0;animation:nebulaDrift 18s ease-in-out infinite alternate}
 .hero:before{content:"";position:absolute;inset:8% 5%;border-radius:50%;background:radial-gradient(ellipse,#173c7c1a,transparent 68%);pointer-events:none;animation:pulseGlow 6s ease-in-out infinite}
@@ -190,8 +192,12 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 @keyframes shieldPulse{0%,100%{filter:drop-shadow(0 0 12px #42e8ff55)}50%{filter:drop-shadow(0 0 26px #42e8ffbb)}}
 @keyframes borderSweep{0%{background-position:200% 0;opacity:.2}50%{opacity:.7}100%{background-position:-20% 0;opacity:.2}}
 @keyframes logoFloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3px) rotate(3deg)}}
-@media(max-width:700px){ #cyber-canvas{opacity:.4}.panel:before{animation:none}.hero:before{inset:0}}
-@media(prefers-reduced-motion:reduce){ #cyber-canvas{display:none}body:after,.hero:before,.hero-orb span,.logo{animation:none!important}.panel:before{animation:none!important}}
+@keyframes scanSweep{0%{transform:translateY(-5vh);opacity:0}12%{opacity:.38}85%{opacity:.3}100%{transform:translateY(150vh);opacity:0}}
+/* Smooth reveal as the visitor scrolls through dashboard sections */
+.motion-reveal{opacity:0;transform:translateY(22px) scale(.99);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.75,.25,1)}
+.motion-reveal.motion-visible{opacity:1;transform:translateY(0) scale(1)}
+@media(max-width:700px){ #cyber-canvas{opacity:.4}.cyber-scanline{opacity:.22}.panel:before{animation:none}.hero:before{inset:0}}
+@media(prefers-reduced-motion:reduce){ #cyber-canvas,.cyber-scanline{display:none}body:after,.hero:before,.hero-orb span,.logo{animation:none!important}.panel:before{animation:none!important}.motion-reveal{opacity:1;transform:none;transition:none}}
 
 @media(max-width:650px){.header-inner{padding:12px}.brand{font-size:17px}.brand-subtitle{font-size:9px;letter-spacing:1px}.logo{width:38px;height:38px}.container{margin-top:18px;padding:0 12px}.welcome h1{font-size:26px}.stats,.detail-grid{grid-template-columns:1fr}.panel-body{padding:14px}.search-form{flex-direction:column}.search-form .button{width:100%}.hero-orb{width:120px;height:120px;border-radius:34px}.hero-orb span{font-size:60px}.hero p{font-size:14px}.nav{gap:5px}.nav a{padding:6px 8px;font-size:11px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition:none!important}}
@@ -221,8 +227,38 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 #photo-lightbox{position:fixed;inset:0;z-index:1000;background:#020817ed;display:none;align-items:center;justify-content:center;padding:25px;backdrop-filter:blur(12px)}#photo-lightbox.open{display:flex;animation:rise .2s both}#photo-lightbox img{max-width:min(94vw,1200px);max-height:86vh;object-fit:contain;border-radius:12px;border:1px solid #42e8ff88;box-shadow:0 0 45px #42e8ff25}#photo-lightbox button{position:absolute;top:18px;right:20px;border:1px solid #42e8ff88;background:#0b1a35;color:#fff;border-radius:50%;width:44px;height:44px;font-size:25px;cursor:pointer}
 @keyframes enterGlow{0%,100%{box-shadow:0 0 18px #42e8ff55,0 0 35px #42e8ff15}50%{box-shadow:0 0 28px #42e8ff99,0 0 60px #42e8ff35}}
 @keyframes orbSpin{0%,100%{filter:hue-rotate(0deg)}50%{filter:hue-rotate(18deg)}}@keyframes barRise{from{transform:scaleY(.08);opacity:.25}to{transform:scaleY(1);opacity:1}}@keyframes barShine{to{transform:translateY(220%)}}@media(max-width:650px){.chart-bars{height:115px}.activity-top,.activity-foot{font-size:9px}}
+
+/* Playful 3D field reactions for the Add Program experience */
+.program-magic{position:relative;height:112px;animation:magicPanelIn .9s cubic-bezier(.16,.8,.25,1) both;margin:0 0 18px;border:1px solid #42e8ff42;border-radius:16px;overflow:hidden;isolation:isolate;background:radial-gradient(ellipse at 50% 120%,#174a8c88,transparent 65%),linear-gradient(120deg,#071329,#0b1e3d 55%,#111638);box-shadow:inset 0 0 28px #42e8ff0d}
+.program-magic:before{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 20%,#42e8ff12 48%,transparent 70%);transform:translateX(-100%);animation:magicSweep 4s ease-in-out infinite}
+.magic-grid{position:absolute;inset:0;opacity:.25;background-image:linear-gradient(#42e8ff22 1px,transparent 1px),linear-gradient(90deg,#42e8ff22 1px,transparent 1px);background-size:22px 22px;transform:perspective(160px) rotateX(20deg) scale(1.3);transform-origin:bottom}
+.magic-caption{position:absolute;left:15px;bottom:10px;font-size:9px;letter-spacing:2px;color:#91eaff;text-transform:uppercase}
+.magic-person{position:absolute;left:50%;top:9px;font-size:42px;filter:drop-shadow(0 0 12px #42e8ff8c);transform:translateX(-50%);animation:lookAround 3s ease-in-out infinite;transform-origin:50% 80%;z-index:2}
+.magic-person:after{content:"◉";position:absolute;font-size:12px;color:#b9fbff;top:12px;left:18px;text-shadow:0 0 9px #42e8ff;animation:eyeBlink 3.5s infinite}
+.magic-orbit{position:absolute;left:50%;top:46px;width:75px;height:24px;border:1px solid #42e8ff88;border-radius:50%;transform:translate(-50%,-50%) rotateX(65deg);box-shadow:0 0 14px #42e8ff2b;animation:orbit 5s linear infinite}
+.magic-creatures{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:4}
+.magic-creature{position:absolute;left:-45px;top:20px;font-size:27px;opacity:0;filter:drop-shadow(0 0 8px #7feaff88);will-change:transform,opacity}
+.program-magic.birds-active .magic-bird{animation:birdFly 2.2s cubic-bezier(.2,.65,.3,1) both}
+.program-magic.people-active .magic-crowd{animation:peoplePop 1.8s cubic-bezier(.15,.8,.25,1) both}
+.magic-bird.b2{top:48px;animation-delay:.12s!important;font-size:22px}.magic-bird.b3{top:8px;animation-delay:.24s!important;font-size:19px}
+.magic-crowd.p2{left:auto;right:-40px;top:28px;animation-delay:.14s!important}.magic-crowd.p3{top:48px;left:46%;animation-delay:.28s!important}
+#programForm .form-group{position:relative;transition:transform .28s ease,filter .28s ease}
+#programForm .form-group.field-active{transform:translateZ(0) scale(1.012);filter:drop-shadow(0 0 9px #42e8ff17)}
+#programForm .form-group.field-active input,#programForm .form-group.field-active textarea,#programForm .form-group.field-active select{border-color:#42e8ff;box-shadow:0 0 0 3px #42e8ff16,0 0 20px #42e8ff16;transition:box-shadow .25s,border-color .25s}
+#programForm .form-group.typing-burst:after{content:"✦  ✧  ✦";position:absolute;right:12px;top:5px;color:#8ef5ff;letter-spacing:7px;pointer-events:none;animation:typeSpark .7s ease-out both;text-shadow:0 0 10px #42e8ff}
+#programForm .form-group.field-active label{color:#8ef5ff;text-shadow:0 0 12px #42e8ff3d}
+@keyframes magicPanelIn{0%{opacity:0;transform:perspective(850px) rotateX(-22deg) rotateY(9deg) translateY(24px) scale(.92);filter:blur(5px)}65%{opacity:1;filter:blur(0);transform:perspective(850px) rotateX(3deg) rotateY(-2deg) translateY(-2px) scale(1.01)}100%{opacity:1;transform:perspective(850px) rotateX(0) rotateY(0) translateY(0) scale(1)}}
+@keyframes magicSweep{0%,25%{transform:translateX(-100%)}65%,100%{transform:translateX(100%)}}
+@keyframes lookAround{0%,100%{transform:translateX(-50%) rotateY(-14deg) rotateZ(-2deg) translateY(0)}30%{transform:translateX(-50%) rotateY(18deg) rotateZ(2deg) translateY(-4px)}65%{transform:translateX(-50%) rotateY(-7deg) rotateZ(0) translateY(1px)}}
+@keyframes eyeBlink{0%,44%,48%,100%{opacity:1;transform:scaleY(1)}46%{opacity:.1;transform:scaleY(.1)}}
+@keyframes birdFly{0%{opacity:0;transform:translate3d(0,18px,0) scale(.45) rotate(-12deg)}15%{opacity:1}65%{opacity:1;transform:translate3d(48vw,-18px,35px) scale(1.15) rotate(8deg)}100%{opacity:0;transform:translate3d(105vw,-8px,60px) scale(.72) rotate(18deg)}}
+@keyframes peoplePop{0%{opacity:0;transform:translate3d(0,45px,-60px) scale(.2) rotateX(35deg)}25%{opacity:1;transform:translate3d(0,-8px,20px) scale(1.25) rotateX(0)}55%{opacity:1;transform:translate3d(0,0,0) scale(1)}100%{opacity:0;transform:translate3d(0,-28px,35px) scale(.8)}}
+@keyframes typeSpark{0%{opacity:0;transform:translateY(8px) scale(.6)}30%{opacity:1}100%{opacity:0;transform:translateY(-10px) scale(1.15)}}
+@media(prefers-reduced-motion:reduce){.program-magic:before,.magic-person,.magic-orbit,.magic-creature{animation:none!important}.program-magic{display:none}#programForm .form-group{transition:none}}
+
 </style></head><body>
 <canvas id="cyber-canvas" aria-hidden="true"></canvas>
+<div class="cyber-scanline" aria-hidden="true"></div>
 <div id="photo-lightbox" role="dialog" aria-modal="true" aria-label="Photograph preview"><button type="button" aria-label="Close photograph">×</button><img alt="Expanded program photograph"></div>
 <header class="header"><div class="header-inner"><a href="{{ url_for('welcome',lang=lang) }}" class="brand-wrap"><div class="logo">🛡️</div><div><div class="brand">{{ t.title }}</div><div class="brand-subtitle">{{ t.subtitle }}</div></div></a>
 <div class="nav">{% if logged_in %}<a href="{{ url_for('home',lang=lang) }}">{{ t.all_programs }}</a><a href="{{ url_for('add_program',lang=lang) }}">+ {{ t.add_program }}</a><a href="{{ url_for('logout',lang=lang) }}">{{ t.logout }}</a>{% elif page != 'login' %}<a href="{{ url_for('login',lang=lang) }}">{{ t.sign_in }}</a>{% endif %}
@@ -254,6 +290,7 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 {% elif page == 'form' %}
 <section class="welcome"><div class="eyebrow">PROGRAM MANAGEMENT</div><h1>{{ t.add_program if mode == 'add' else t.edit }}</h1><p>{{ t.intro }}</p></section>
 <section class="panel"><div class="panel-header"><h2>{{ t.add_program if mode == 'add' else t.edit }}</h2></div><div class="panel-body">
+<div class="program-magic" id="programMagic" aria-hidden="true"><div class="magic-grid"></div><div class="magic-orbit"></div><div class="magic-person">🕵️</div><div class="magic-creatures"><span class="magic-creature magic-bird">🕊️</span><span class="magic-creature magic-bird b2">🐦</span><span class="magic-creature magic-bird b3">🕊️</span><span class="magic-creature magic-crowd">🧍</span><span class="magic-creature magic-crowd p2">👮</span><span class="magic-creature magic-crowd p3">🧑‍🤝‍🧑</span></div><div class="magic-caption" id="magicCaption">3D PROGRAM INTERFACE · READY</div></div>
 <form id="programForm" method="POST" enctype="multipart/form-data" action="{{ form_action }}">
 <div class="form-group"><label>{{ t.date }} *</label><input type="date" name="date" value="{{ form.get('date','') }}" required></div>
 <div class="form-group"><label>{{ t.station }} *</label><input name="station" value="{{ form.get('station','') }}" maxlength="150" placeholder="{{ t.station_placeholder }}" required></div>
@@ -271,7 +308,18 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 <div class="actions"><button class="button" type="submit">{{ t.submit if mode == 'add' else t.save_changes }}</button><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.cancel }}</a></div>
 </form></div></section>
 <script>
-(function(){const form=document.getElementById('programForm'),picker=document.getElementById('photoPicker'),preview=document.getElementById('photoPreview'),count=document.getElementById('photoCount'),inputs=document.getElementById('uploadInputs'),addButton=document.getElementById('addPhotoButton');const maxAllowed={{ 10 - (photos|length if mode == 'edit' else 0) }};let selected=[],idCounter=1;
+(function(){const form=document.getElementById('programForm'),picker=document.getElementById('photoPicker'),preview=document.getElementById('photoPreview'),count=document.getElementById('photoCount'),inputs=document.getElementById('uploadInputs'),addButton=document.getElementById('addPhotoButton'),magic=document.getElementById('programMagic'),magicCaption=document.getElementById('magicCaption');const maxAllowed={{ 10 - (photos|length if mode == 'edit' else 0) }};let selected=[],idCounter=1;
+if(form&&magic){
+  // The investigator appears when Add Program opens.
+  requestAnimationFrame(()=>{magic.classList.add('magic-open');magicCaption.textContent='3D SCENE ACTIVE · ENTER PROGRAM DETAILS'});
+  const placeField=form.querySelector('[name="place"]'),nameField=form.querySelector('[name="name"]');
+  function replay(className){magic.classList.remove('birds-active','people-active');void magic.offsetWidth;magic.classList.add(className);window.setTimeout(()=>magic.classList.remove(className),2300)}
+  function activateField(field,scene){form.querySelectorAll('.form-group').forEach(g=>g.classList.remove('field-active'));const group=field.closest('.form-group');if(group)group.classList.add('field-active');magicCaption.textContent=scene==='birds-active'?'PROGRAM NAME · BIRDS IN FLIGHT':scene==='people-active'?'PROGRAM PLACE · PEOPLE ARRIVE':'CYBER PROGRAM · FIELD ACTIVE';if(scene)replay(scene)}
+  if(nameField){nameField.addEventListener('focus',()=>activateField(nameField,'birds-active'));nameField.addEventListener('input',()=>{const g=nameField.closest('.form-group');if(g){g.classList.remove('typing-burst');void g.offsetWidth;g.classList.add('typing-burst');setTimeout(()=>g.classList.remove('typing-burst'),750)}})}
+  if(placeField){placeField.addEventListener('focus',()=>activateField(placeField,'people-active'));placeField.addEventListener('input',()=>{const g=placeField.closest('.form-group');if(g){g.classList.remove('typing-burst');void g.offsetWidth;g.classList.add('typing-burst');setTimeout(()=>g.classList.remove('typing-burst'),750)}})}
+  form.querySelectorAll('input:not([type=file]),textarea,select').forEach(field=>{field.addEventListener('focus',()=>{const g=field.closest('.form-group');if(g)g.classList.add('field-active')});field.addEventListener('input',()=>{const g=field.closest('.form-group');if(g){g.classList.remove('typing-burst');void g.offsetWidth;g.classList.add('typing-burst');setTimeout(()=>g.classList.remove('typing-burst'),750)}})});
+  form.addEventListener('focusout',e=>{if(!form.contains(e.relatedTarget)){form.querySelectorAll('.form-group').forEach(g=>g.classList.remove('field-active'));magicCaption.textContent='3D PROGRAM INTERFACE · READY'}})
+}
 function render(){preview.replaceChildren();inputs.replaceChildren();selected.forEach(item=>{const card=document.createElement('div');card.className='photo-preview';const img=document.createElement('img');img.alt=item.file.name;const objectUrl=URL.createObjectURL(item.file);img.src=objectUrl;img.onload=()=>URL.revokeObjectURL(objectUrl);const name=document.createElement('div');name.className='filename';name.textContent=item.file.name;const remove=document.createElement('button');remove.type='button';remove.className='button danger';remove.textContent={{ t.remove_photo|tojson }};remove.addEventListener('click',()=>{selected=selected.filter(x=>x.id!==item.id);render()});card.append(img,name,remove);preview.appendChild(card);const dt=new DataTransfer();dt.items.add(item.file);const input=document.createElement('input');input.type='file';input.name='photos';input.hidden=true;input.files=dt.files;inputs.appendChild(input)});count.textContent=selected.length+' / '+maxAllowed+' {{ t.photo_count }}';picker.disabled=selected.length>=maxAllowed;addButton.disabled=selected.length>=maxAllowed}
 function addFiles(files){for(const file of files){if(selected.length>=maxAllowed){alert('Maximum photo count reached.');break}const ext=file.name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp'].includes(ext)){alert(file.name+' is not a supported image.');continue}selected.push({id:idCounter++,file})}render()}
 picker.addEventListener('change',()=>{addFiles(Array.from(picker.files||[]));picker.value=''});addButton.addEventListener('click',()=>{if(selected.length<maxAllowed)picker.click()});form.addEventListener('submit',e=>{if(selected.length>maxAllowed){e.preventDefault();alert('Maximum photo count exceeded.')}})})();
@@ -291,6 +339,15 @@ start.addEventListener('click',()=>{if(listening)return;baseText=details.value.t
 <script>
 /* Lightweight animated network particles + gentle 3D card tilt. */
 (function(){
+ const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const revealTargets=document.querySelectorAll('main.container > .welcome, main.container > .stats, main.container > .panel, main.container > .actions');
+ if(reduceMotion){revealTargets.forEach(el=>el.classList.add('motion-visible'));}
+ else if('IntersectionObserver' in window){
+   const revealObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{
+     if(entry.isIntersecting){entry.target.classList.add('motion-visible');revealObserver.unobserve(entry.target);}
+   }),{threshold:.08,rootMargin:'0px 0px -25px 0px'});
+   revealTargets.forEach((el,index)=>{el.classList.add('motion-reveal');el.style.transitionDelay=Math.min(index*70,280)+'ms';revealObserver.observe(el);});
+ }else{revealTargets.forEach(el=>el.classList.add('motion-visible'));}
  const canvas=document.getElementById('cyber-canvas');
  if(!canvas || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
  const ctx=canvas.getContext('2d'); if(!ctx)return;
