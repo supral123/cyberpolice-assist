@@ -556,15 +556,21 @@ def uploaded_file(filename):
 @app.route("/program/<int:program_id>/pdf")
 @login_required
 def download_pdf(program_id):
+    """Create a one-page program summary followed by photo pages (4 photos/page)."""
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT, TA_CENTER
         from reportlab.lib.units import mm
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
+        from reportlab.pdfgen import canvas
+        from reportlab.platypus import Paragraph
+        from reportlab.lib.utils import ImageReader
     except ImportError:
-        return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.",500
-    lang=get_language(); t=TEXT[lang]
+        return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.", 500
+
+    lang = get_language()
+    t = TEXT[lang]
     try:
         db = get_supabase()
         found = db.table("programs").select("*").eq("id", program_id).limit(1).execute().data or []
@@ -573,34 +579,231 @@ def download_pdf(program_id):
     except Exception:
         app.logger.exception("Could not load PDF report data from Supabase")
         return "Database connection failed. Check Render logs and Supabase setup.", 500
-    if program is None: abort(404)
-    buffer=BytesIO(); doc=SimpleDocTemplate(buffer,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=17*mm,bottomMargin=17*mm)
-    styles=getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="CyberTitle",parent=styles["Title"],fontName="Helvetica-Bold",fontSize=17,leading=22,alignment=1,textColor=colors.HexColor("#236b9b"),spaceAfter=8))
-    styles.add(ParagraphStyle(name="CyberSmall",parent=styles["Normal"],fontSize=9,leading=13))
-    styles.add(ParagraphStyle(name="CyberPhotoTitle",parent=styles["Heading2"],alignment=1,textColor=colors.HexColor("#236b9b"),spaceAfter=10))
-    story=[Paragraph(escape(t["report"]),styles["CyberTitle"]),Paragraph(escape(t["title"]),styles["Heading2"]),Spacer(1,5*mm)]
-    photo_label="Photographs" if lang=="en" else "छायाचित्रे"
-    rows=[[t["date"],program["date"]],[t["station"],program["station"]],[t["place"],program["place"]],
-          [t["name"],program["name"]],[t["attendees"],str(program["attendees"])],
-          [t["details"],program["details"] or "—"],[photo_label,str(len(photos))]]
-    safe_rows=[[Paragraph("<b>"+escape(str(label))+"</b>",styles["CyberSmall"]),
-                Paragraph(escape(str(value)).replace("\n","<br/>"),styles["CyberSmall"])] for label,value in rows]
-    table=Table(safe_rows,colWidths=[42*mm,125*mm])
-    table.setStyle(TableStyle([("BACKGROUND",(0,0),(0,-1),colors.HexColor("#e8f3fb")),("GRID",(0,0),(-1,-1),0.5,colors.HexColor("#b8c9dc")),("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7)]))
-    story.extend([table,Spacer(1,4*mm),Paragraph(escape(t["page_info"]),styles["CyberSmall"])])
-    if photos:
-        story.extend([PageBreak(),Paragraph(escape(t["photo_page"]),styles["CyberPhotoTitle"])])
-        for index,photo in enumerate(photos,start=1):
-            path=os.path.join(UPLOAD_FOLDER,photo["filename"])
-            if not os.path.isfile(path): continue
-            try:
-                img=Image(path); img._restrictSize(165*mm,220*mm)
-                story.append(KeepTogether([Paragraph(f"{escape(t['photos'])} {index}",styles["Heading3"]),img,Spacer(1,5*mm)]))
-            except Exception: continue
-    story.extend([Spacer(1,3*mm),Paragraph(escape(t["report_generated"])+": "+datetime.now().strftime("%Y-%m-%d %H:%M"),styles["CyberSmall"])])
-    doc.build(story); buffer.seek(0)
-    return send_file(buffer,mimetype="application/pdf",as_attachment=True,download_name=f"program_report_{program_id}.pdf")
+
+    if program is None:
+        abort(404)
+
+    # Keep the existing Supabase database flow and current uploads folder unchanged.
+    photo_files = []
+    for photo in photos:
+        filename = os.path.basename(str(photo.get("filename", "")))
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        if filename and os.path.isfile(path):
+            photo_files.append((filename, path))
+
+    page_w, page_h = A4
+    margin = 15 * mm
+    content_w = page_w - 2 * margin
+    navy = colors.HexColor("#0A1730")
+    navy2 = colors.HexColor("#10294A")
+    cyan = colors.HexColor("#11A9C8")
+    ink = colors.HexColor("#18283D")
+    muted = colors.HexColor("#62748A")
+    pale = colors.HexColor("#F1F7FB")
+    border = colors.HexColor("#D4E1EC")
+    white = colors.white
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4, pageCompression=1)
+    pdf.setTitle(f"{program.get('name', 'Program')} - Cyber Awareness Report")
+    pdf.setAuthor("CyberPolice Assist")
+
+    def para(text, size, leading=None, color=ink, bold=False, alignment=TA_LEFT):
+        safe_text = escape(str(text if text is not None else "—")).replace("\n", "<br/>")
+        return Paragraph(safe_text, ParagraphStyle(
+            name=f"p_{size}_{bold}_{alignment}", fontName="Helvetica-Bold" if bold else "Helvetica",
+            fontSize=size, leading=leading or size * 1.28, textColor=color, alignment=alignment,
+            splitLongWords=1, spaceAfter=0, spaceBefore=0
+        ))
+
+    def draw_paragraph(p, x, top_y, width):
+        _, height = p.wrap(width, page_h)
+        p.drawOn(pdf, x, top_y - height)
+        return height
+
+    # -------------------- PAGE 1: ALL PROGRAM INFORMATION --------------------
+    pdf.setFillColor(navy)
+    pdf.rect(0, page_h - 91, page_w, 91, fill=1, stroke=0)
+    pdf.setFillColor(cyan)
+    pdf.rect(0, page_h - 95, page_w, 4, fill=1, stroke=0)
+    pdf.setFillColor(white)
+    pdf.setFont("Helvetica-Bold", 9)
+    pdf.drawString(margin, page_h - 25, "CYBERPOLICE ASSIST  /  PROGRAM MANAGEMENT")
+    pdf.setFont("Helvetica-Bold", 19)
+    report_title = t["report"]
+    pdf.drawString(margin, page_h - 52, report_title[:70])
+    pdf.setFont("Helvetica", 8)
+    pdf.setFillColor(colors.HexColor("#C9D9EA"))
+    pdf.drawString(margin, page_h - 72, "OFFICIAL PROGRAM RECORD")
+    pdf.setFillColor(ink)
+
+    top = page_h - 113
+    gap = 10
+    col_w = (content_w - gap) / 2
+    details_text = str(program.get("details") or "—")
+    meta = [
+        (t["date"], str(program.get("date") or "—")),
+        (t["station"], str(program.get("station") or "—")),
+        (t["place"], str(program.get("place") or "—")),
+        (t["attendees"], str(program.get("attendees", "—"))),
+        (t["name"], str(program.get("name") or "—")),
+        ("Photographs" if lang == "en" else "छायाचित्रे", str(len(photos))),
+    ]
+
+    # Dynamically compact text so even long details are fitted onto the single
+    # information page. The content is never intentionally flowed to a new page.
+    chosen = None
+    for font_size in [10, 9, 8, 7, 6, 5, 4.5, 4, 3.5, 3, 2.7]:
+        label_size = max(5.2, font_size * 0.78)
+        value_leading = max(3.2, font_size * 1.24)
+        label_leading = label_size * 1.15
+        meta_heights = []
+        for i in range(0, len(meta), 2):
+            row_h = 0
+            for label, value in meta[i:i + 2]:
+                lp = para(label.upper(), label_size, label_leading, muted, True)
+                vp = para(value, font_size, value_leading, ink, True)
+                _, lh = lp.wrap(col_w - 18, page_h)
+                _, vh = vp.wrap(col_w - 18, page_h)
+                row_h = max(row_h, 12 + lh + 4 + vh + 9)
+            meta_heights.append(row_h)
+        details_label = para(t["details"].upper(), label_size, label_leading, muted, True)
+        details_para = para(details_text, font_size, value_leading, ink, False)
+        _, dl_h = details_label.wrap(content_w - 20, page_h)
+        _, dv_h = details_para.wrap(content_w - 20, page_h)
+        details_h = 14 + dl_h + 4 + dv_h + 10
+        total_h = sum(meta_heights) + 9 * (len(meta_heights) - 1) + 10 + details_h
+        if total_h <= top - (margin + 30):
+            chosen = (font_size, label_size, value_leading, label_leading, meta_heights, details_h)
+            break
+    if chosen is None:
+        # At the supported form limit this should rarely be needed; use the
+        # smallest layout size as a final fit fallback.
+        chosen = (2.5, 5.2, 3.1, 5.98, [], 0)
+
+    font_size, label_size, value_leading, label_leading, meta_heights, details_h = chosen
+    y = top
+    for row_index, row_start in enumerate(range(0, len(meta), 2)):
+        row_items = meta[row_start:row_start + 2]
+        row_h = meta_heights[row_index] if row_index < len(meta_heights) else 35
+        for col, (label, value) in enumerate(row_items):
+            x = margin + col * (col_w + gap)
+            pdf.setFillColor(pale)
+            pdf.roundRect(x, y - row_h, col_w, row_h, 7, fill=1, stroke=0)
+            pdf.setStrokeColor(border)
+            pdf.setLineWidth(0.6)
+            pdf.roundRect(x, y - row_h, col_w, row_h, 7, fill=0, stroke=1)
+            inner_x = x + 9
+            inner_top = y - 9
+            lp = para(label.upper(), label_size, label_leading, muted, True)
+            lh = draw_paragraph(lp, inner_x, inner_top, col_w - 18)
+            vp = para(value, font_size, value_leading, ink, True)
+            draw_paragraph(vp, inner_x, inner_top - lh - 4, col_w - 18)
+        y -= row_h + 9
+
+    y -= 1
+    pdf.setFillColor(white)
+    pdf.roundRect(margin, y - details_h, content_w, details_h, 8, fill=1, stroke=0)
+    pdf.setStrokeColor(border)
+    pdf.roundRect(margin, y - details_h, content_w, details_h, 8, fill=0, stroke=1)
+    inner_x = margin + 10
+    inner_top = y - 9
+    details_label = para(t["details"].upper(), label_size, label_leading, muted, True)
+    dh = draw_paragraph(details_label, inner_x, inner_top, content_w - 20)
+    details_para = para(details_text, font_size, value_leading, ink, False)
+    draw_paragraph(details_para, inner_x, inner_top - dh - 4, content_w - 20)
+
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    pdf.setStrokeColor(border)
+    pdf.line(margin, margin + 13, page_w - margin, margin + 13)
+    pdf.setFillColor(muted)
+    pdf.setFont("Helvetica", 7)
+    pdf.drawString(margin, margin, f"{t['report_generated']}: {generated}")
+    pdf.drawRightString(page_w - margin, margin, "PAGE 1  •  PROGRAM INFORMATION")
+    pdf.showPage()
+
+    # -------------------- PHOTO PAGES: EXACTLY 4 PHOTOS PER PAGE --------------------
+    if photo_files:
+        photo_title = t["photo_page"]
+        cols = 2
+        grid_gap_x = 10 * mm
+        grid_gap_y = 10 * mm
+        cell_w = (content_w - grid_gap_x) / 2
+        header_h = 62
+        grid_top = page_h - margin - header_h
+        footer_y = margin
+        grid_bottom = margin + 24
+        cell_h = (grid_top - grid_bottom - grid_gap_y) / 2
+        image_pad = 8
+        caption_h = 23
+        image_w = cell_w - 2 * image_pad
+        image_h = cell_h - caption_h - 2 * image_pad
+
+        for start in range(0, len(photo_files), 4):
+            chunk = photo_files[start:start + 4]
+            page_number = 2 + start // 4
+            pdf.setFillColor(navy)
+            pdf.rect(0, page_h - 82, page_w, 82, fill=1, stroke=0)
+            pdf.setFillColor(cyan)
+            pdf.rect(0, page_h - 86, page_w, 4, fill=1, stroke=0)
+            pdf.setFillColor(white)
+            pdf.setFont("Helvetica-Bold", 15)
+            pdf.drawString(margin, page_h - 35, photo_title[:75])
+            pdf.setFillColor(colors.HexColor("#C9D9EA"))
+            pdf.setFont("Helvetica", 8)
+            pdf.drawString(margin, page_h - 55, str(program.get("name") or t["title"])[:100])
+            pdf.drawRightString(page_w - margin, page_h - 55, f"{len(photo_files)} PHOTOS")
+
+            for local_index, (filename, path) in enumerate(chunk):
+                col = local_index % 2
+                row = local_index // 2
+                x = margin + col * (cell_w + grid_gap_x)
+                cell_top = grid_top - row * (cell_h + grid_gap_y)
+                cell_bottom = cell_top - cell_h
+                pdf.setFillColor(white)
+                pdf.roundRect(x, cell_bottom, cell_w, cell_h, 9, fill=1, stroke=0)
+                pdf.setStrokeColor(border)
+                pdf.setLineWidth(0.8)
+                pdf.roundRect(x, cell_bottom, cell_w, cell_h, 9, fill=0, stroke=1)
+
+                try:
+                    reader = ImageReader(path)
+                    iw, ih = reader.getSize()
+                    if iw > 0 and ih > 0:
+                        scale = min(image_w / iw, image_h / ih)
+                        draw_w, draw_h = iw * scale, ih * scale
+                        img_x = x + (cell_w - draw_w) / 2
+                        img_y = cell_bottom + caption_h + image_pad + (image_h - draw_h) / 2
+                        pdf.drawImage(reader, img_x, img_y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
+                except Exception:
+                    app.logger.exception("Could not embed photograph %s in PDF", filename)
+                    pdf.setFillColor(muted)
+                    pdf.setFont("Helvetica", 9)
+                    pdf.drawCentredString(x + cell_w / 2, cell_bottom + cell_h / 2, "Photograph unavailable")
+
+                photo_number = start + local_index + 1
+                pdf.setFillColor(navy2)
+                pdf.setFont("Helvetica-Bold", 8)
+                caption = f"PHOTO {photo_number:02d}"
+                pdf.drawString(x + image_pad, cell_bottom + 9, caption)
+                pdf.setFillColor(muted)
+                pdf.setFont("Helvetica", 6.5)
+                display_name = filename if len(filename) <= 34 else filename[:31] + "..."
+                pdf.drawRightString(x + cell_w - image_pad, cell_bottom + 9, display_name)
+
+            pdf.setStrokeColor(border)
+            pdf.line(margin, margin + 14, page_w - margin, margin + 14)
+            pdf.setFillColor(muted)
+            pdf.setFont("Helvetica", 7)
+            pdf.drawString(margin, margin, f"{t['report_generated']}: {generated}")
+            pdf.drawRightString(page_w - margin, margin, f"PAGE {page_number}  •  PHOTOGRAPHS")
+            pdf.showPage()
+
+    pdf.save()
+    buffer.seek(0)
+    return send_file(buffer, mimetype="application/pdf", as_attachment=True,
+                     download_name=f"program_report_{program_id}.pdf")
+
 
 @app.after_request
 def security_headers(response):
