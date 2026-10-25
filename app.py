@@ -1,8 +1,9 @@
 import os
+import calendar as pycalendar
 import mimetypes
 import hmac
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from functools import wraps
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -51,7 +52,7 @@ TEXT = {
         "station_placeholder":"Enter police station name","place_placeholder":"Enter program location",
         "name_placeholder":"Enter program name","no_photo":"No photographs uploaded",
         "program_details":"Program Information","clear_search":"Clear Search","download_pdf":"Download PDF Report","download_excel":"Download Excel Report",
-        "range_reports":"Download Reports by Date Range","from_date":"From date","to_date":"To date",
+        "range_reports":"Download Reports by Date Range","calendar":"Calendar View","calendar_title":"Program Calendar","calendar_intro":"Browse cyber-awareness programs by date. Select any day to see its events.","previous_month":"Previous month","next_month":"Next month","this_month":"This month","month_programs":"Programs this month","month_attendees":"Attendees this month","events_on":"Programs on","no_events_day":"No programs recorded on this date.","events":"events","from_date":"From date","to_date":"To date",
         "report_format":"Report format","pdf_option":"Combined PDF","excel_option":"Excel workbook (.xlsx)",
         "download_range":"Download selected period","invalid_date_range":"Please select a valid date range.",
         "no_range_programs":"No programs were found in the selected date range.",
@@ -89,7 +90,7 @@ TEXT = {
         "station_placeholder":"पोलीस स्टेशनचे नाव लिहा","place_placeholder":"कार्यक्रमाचे ठिकाण लिहा",
         "name_placeholder":"कार्यक्रमाचे नाव लिहा","no_photo":"छायाचित्रे अपलोड केलेली नाहीत",
         "program_details":"कार्यक्रमाची माहिती","clear_search":"शोध काढा","download_pdf":"PDF अहवाल डाउनलोड करा","download_excel":"Excel अहवाल डाउनलोड करा",
-        "range_reports":"दिनांकानुसार अहवाल डाउनलोड करा","from_date":"पासून दिनांक","to_date":"पर्यंत दिनांक",
+        "range_reports":"दिनांकानुसार अहवाल डाउनलोड करा","calendar":"दिनदर्शिका","calendar_title":"कार्यक्रम दिनदर्शिका","calendar_intro":"दिनांकानुसार सायबर जनजागृती कार्यक्रम पहा. त्या दिवसाचे कार्यक्रम पाहण्यासाठी तारीख निवडा.","previous_month":"मागील महिना","next_month":"पुढील महिना","this_month":"चालू महिना","month_programs":"या महिन्यातील कार्यक्रम","month_attendees":"या महिन्यातील सहभागी","events_on":"या दिनांकाचे कार्यक्रम","no_events_day":"या दिनांकासाठी कोणताही कार्यक्रम नोंदलेला नाही.","events":"कार्यक्रम","from_date":"पासून दिनांक","to_date":"पर्यंत दिनांक",
         "report_format":"अहवालाचा प्रकार","pdf_option":"एकत्रित PDF","excel_option":"Excel फाईल (.xlsx)",
         "download_range":"निवडलेल्या कालावधीचा अहवाल डाउनलोड करा","invalid_date_range":"कृपया योग्य दिनांक कालावधी निवडा.",
         "no_range_programs":"निवडलेल्या कालावधीत कोणतेही कार्यक्रम आढळले नाहीत.",
@@ -278,13 +279,16 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 @media(prefers-reduced-motion:reduce){.program-magic:before,.magic-person,.magic-orbit,.magic-creature{animation:none!important}.program-magic{display:none}#programForm .form-group{transition:none}}
 
 .existing-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:12px}.existing-photo-card{min-width:0;padding:10px;border:1px solid var(--line);border-radius:14px;background:#071329}.existing-photo-card img{display:block;width:100%;height:115px;object-fit:cover;border-radius:9px}.remove-existing-photo{display:flex;align-items:center;gap:7px;margin-top:9px;color:#ff9da8;font-size:12px;font-weight:750;cursor:pointer}.remove-existing-photo input{width:16px;height:16px;accent-color:#ef476f}.existing-photo-card:has(input:checked){border-color:#ff667f;box-shadow:0 0 0 2px #ff667f22}.existing-photo-card:has(input:checked) img{opacity:.48}
+
+.calendar-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:14px 0 20px}.calendar-month-title{font-size:clamp(21px,3vw,30px);font-weight:850;color:#eff7ff;margin:0}.calendar-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(100px,1fr));min-width:760px;gap:1px;background:var(--line)}.calendar-weekday{background:#0b1833;padding:11px 8px;text-align:center;color:var(--cyan);font-size:11px;font-weight:850;text-transform:uppercase;letter-spacing:.7px}.calendar-day{min-height:128px;padding:8px;background:rgba(7,17,38,.96);overflow:hidden}.calendar-day.outside{background:rgba(5,11,27,.72);opacity:.62}.calendar-day.selected{outline:2px solid var(--cyan);outline-offset:-2px;background:#102748}.calendar-day.today .day-number{border-color:#42e8ff;background:#12375a;color:#fff}.day-top{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:7px}.day-number{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 6px;border:1px solid transparent;border-radius:9px;font-size:12px;font-weight:850}.day-count{font-size:10px;color:var(--muted);white-space:nowrap}.calendar-event{display:block;margin:5px 0;padding:5px 6px;border-radius:7px;background:#10294a;border-left:3px solid var(--cyan);font-size:10px;line-height:1.35;overflow:hidden}.calendar-event strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#eafaff}.calendar-event span{display:block;color:#a9c5e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.calendar-more{font-size:10px;color:var(--cyan);padding:2px 5px}.calendar-selected-list{display:grid;gap:10px}.calendar-selected-item{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#07142b}.calendar-selected-item h3{font-size:14px;margin:0 0 3px}.calendar-selected-meta{font-size:12px;color:var(--muted)}.calendar-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0}.calendar-kpi{padding:14px;border:1px solid var(--line);border-radius:13px;background:#07142b}.calendar-kpi span{display:block;font-size:11px;color:var(--muted)}.calendar-kpi strong{font-size:25px;color:var(--cyan)}@media(max-width:600px){.calendar-day{min-height:105px;padding:5px}.calendar-kpi strong{font-size:21px}}
+
 </style></head><body>
 <canvas id="cyber-canvas" aria-hidden="true"></canvas>
 <div class="cyber-scanline" aria-hidden="true"></div>
 <div id="photo-lightbox" role="dialog" aria-modal="true" aria-label="Photograph preview"><button type="button" aria-label="Close photograph">×</button><img alt="Expanded program photograph"></div>
 <header class="header"><div class="header-inner"><a href="{{ url_for('welcome',lang=lang) }}" class="brand-wrap"><div class="logo">🛡️</div><div><div class="brand">{{ t.title }}</div><div class="brand-subtitle">{{ t.subtitle }}</div></div></a>
-<div class="nav">{% if logged_in %}<a href="{{ url_for('home',lang=lang) }}">{{ t.all_programs }}</a><a href="{{ url_for('add_program',lang=lang) }}">+ {{ t.add_program }}</a><a href="{{ url_for('logout',lang=lang) }}">{{ t.logout }}</a>{% elif page != 'login' %}<a href="{{ url_for('login',lang=lang) }}">{{ t.sign_in }}</a>{% endif %}
-<a href="{{ url_for(page_link,lang='en') }}">English</a><a href="{{ url_for(page_link,lang='mr') }}">मराठी</a></div></div></header>
+<div class="nav">{% if logged_in %}<a href="{{ url_for('home',lang=lang) }}">{{ t.all_programs }}</a><a href="{{ url_for('calendar_view',lang=lang) }}">▦ {{ t.calendar }}</a><a href="{{ url_for('add_program',lang=lang) }}">+ {{ t.add_program }}</a><a href="{{ url_for('logout',lang=lang) }}">{{ t.logout }}</a>{% elif page != 'login' %}<a href="{{ url_for('login',lang=lang) }}">{{ t.sign_in }}</a>{% endif %}
+{% if page == 'calendar' %}<a href="{{ url_for('calendar_view',year=calendar_year,month=calendar_month,selected=selected_date,lang='en') }}">English</a><a href="{{ url_for('calendar_view',year=calendar_year,month=calendar_month,selected=selected_date,lang='mr') }}">मराठी</a>{% else %}<a href="{{ url_for(page_link,lang='en') }}">English</a><a href="{{ url_for(page_link,lang='mr') }}">मराठी</a>{% endif %}</div></div></header>
 <main class="{% if page == 'welcome' %}hero{% else %}container{% endif %}">
 {% if message %}<div class="message {{ 'error' if error else '' }}">{{ message }}</div>{% endif %}
 {% if page == 'welcome' %}
@@ -310,6 +314,22 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 {% if programs %}<div class="table-wrap"><table><thead><tr><th>#</th><th>{{ t.date }}</th><th>{{ t.station }}</th><th>{{ t.place }}</th><th>{{ t.name }}</th><th>{{ t.attendees }}</th><th>{{ t.actions }}</th></tr></thead><tbody>
 {% for p in programs %}<tr><td>{{ loop.index }}</td><td>{{ format_display_date(p.date) }}</td><td>{{ p.station }}</td><td>{{ p.place }}</td><td>{{ p.name }}</td><td>{{ p.attendees }}</td><td><a class="badge" href="{{ url_for('program_details',program_id=p.id,lang=lang) }}">{{ t.view }}</a> <a class="badge" href="{{ url_for('edit_program',program_id=p.id,lang=lang) }}">{{ t.edit }}</a></td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="empty">{{ t.no_programs }}</div>{% endif %}</div></section>
+{% elif page == 'calendar' %}
+<section class="welcome"><div class="eyebrow">PROGRAM MANAGEMENT / CALENDAR</div><h1>{{ t.calendar_title }}</h1><p>{{ t.calendar_intro }}</p></section>
+<div class="actions"><a class="button secondary" href="{{ url_for('calendar_view',year=prev_year,month=prev_month,lang=lang) }}">← {{ t.previous_month }}</a><a class="button secondary" href="{{ url_for('calendar_view',year=today_year,month=today_month,lang=lang) }}">{{ t.this_month }}</a><a class="button secondary" href="{{ url_for('calendar_view',year=next_year,month=next_month,lang=lang) }}">{{ t.next_month }} →</a><a class="button" href="{{ url_for('add_program',lang=lang) }}">＋ {{ t.add_program }}</a></div>
+<div class="calendar-kpis"><div class="calendar-kpi"><span>{{ t.month_programs }}</span><strong>{{ month_program_count }}</strong></div><div class="calendar-kpi"><span>{{ t.month_attendees }}</span><strong>{{ month_attendees }}</strong></div></div>
+<section class="panel"><div class="panel-header"><h2>▦ {{ month_title }} {{ calendar_year }}</h2></div><div class="panel-body">
+<div class="calendar-scroll"><div class="calendar-grid">
+{% for weekday in weekdays %}<div class="calendar-weekday">{{ weekday }}</div>{% endfor %}
+{% for week in calendar_weeks %}{% for cell in week %}<div class="calendar-day {{ 'outside' if not cell.in_month else '' }} {{ 'selected' if cell.iso == selected_date else '' }} {{ 'today' if cell.iso == today_iso else '' }}">
+<div class="day-top"><a class="day-number" href="{{ url_for('calendar_view',year=calendar_year,month=calendar_month,selected=cell.iso,lang=lang) }}">{{ cell.day }}</a>{% if cell.events %}<span class="day-count">{{ cell.events|length }} {{ t.events }}</span>{% endif %}</div>
+{% for event in cell.events[:2] %}<a class="calendar-event" href="{{ url_for('program_details',program_id=event.id,lang=lang) }}"><strong>{{ event.name or 'Program' }}</strong><span>{{ event.station or event.place or '' }}</span></a>{% endfor %}
+{% if cell.events|length > 2 %}<a class="calendar-more" href="{{ url_for('calendar_view',year=calendar_year,month=calendar_month,selected=cell.iso,lang=lang) }}">+{{ cell.events|length - 2 }} more</a>{% endif %}
+</div>{% endfor %}{% endfor %}
+</div></div></div></section>
+{% if selected_date %}<section class="panel"><div class="panel-header"><h2>📅 {{ t.events_on }} {{ format_display_date(selected_date) }}</h2></div><div class="panel-body">
+{% if selected_programs %}<div class="calendar-selected-list">{% for event in selected_programs %}<div class="calendar-selected-item"><div><h3><a href="{{ url_for('program_details',program_id=event.id,lang=lang) }}">{{ event.name or 'Program' }}</a></h3><div class="calendar-selected-meta">{{ event.station or '' }} · {{ event.place or '' }} · {{ event.attendees or 0 }} {{ t.attendees }}</div></div><a class="button secondary" href="{{ url_for('program_details',program_id=event.id,lang=lang) }}">{{ t.view }} →</a></div>{% endfor %}</div>{% else %}<div class="empty">{{ t.no_events_day }}</div>{% endif %}
+</div></section>{% endif %}
 {% elif page == 'form' %}
 <section class="welcome"><div class="eyebrow">PROGRAM MANAGEMENT</div><h1>{{ t.add_program if mode == 'add' else t.edit }}</h1><p>{{ t.intro }}</p></section>
 <section class="panel"><div class="panel-header"><h2>{{ t.add_program if mode == 'add' else t.edit }}</h2></div><div class="panel-body">
@@ -461,6 +481,87 @@ def home():
     if request.args.get("deleted") == "1": message = TEXT[lang]["deleted"]
     return render_page("home", lang, page_link="home", programs=programs, total_programs=total_programs,
                        total_attendees=total_attendees, query=query, message=message)
+
+
+@app.route("/calendar")
+@login_required
+def calendar_view():
+    """Render a month calendar using existing programs.date values; no schema changes required."""
+    lang = get_language()
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+        month = int(request.args.get("month", today.month))
+        if year < 2000 or year > 2100 or month < 1 or month > 12:
+            raise ValueError("Invalid month")
+    except (TypeError, ValueError):
+        year, month = today.year, today.month
+
+    selected_date = ""
+    selected_raw = (request.args.get("selected") or "").strip()
+    if selected_raw:
+        try:
+            selected_date = date.fromisoformat(selected_raw).isoformat()
+        except ValueError:
+            selected_date = ""
+
+    calendar_obj = pycalendar.Calendar(firstweekday=0)  # Monday-first calendar
+    month_weeks = calendar_obj.monthdatescalendar(year, month)
+    grid_start = month_weeks[0][0]
+    grid_end = month_weeks[-1][-1]
+
+    try:
+        db = get_supabase()
+        rows = db.table("programs").select("*").gte("date", grid_start.isoformat()).lte("date", grid_end.isoformat()).order("date").order("id").execute().data or []
+    except Exception:
+        app.logger.exception("Could not load calendar programs from Supabase")
+        return "Calendar could not load program data. Check Render logs and Supabase setup.", 500
+
+    events_by_date = {}
+    for row in rows:
+        raw_date = str(row.get("date") or "")[:10]
+        try:
+            row_date = date.fromisoformat(raw_date)
+        except ValueError:
+            continue
+        events_by_date.setdefault(row_date.isoformat(), []).append(row)
+
+    calendar_weeks = []
+    for week in month_weeks:
+        calendar_week = []
+        for day_value in week:
+            iso = day_value.isoformat()
+            calendar_week.append({
+                "iso": iso,
+                "day": day_value.day,
+                "in_month": day_value.month == month,
+                "events": events_by_date.get(iso, []),
+            })
+        calendar_weeks.append(calendar_week)
+
+    month_start = date(year, month, 1)
+    month_end = date(year, month, pycalendar.monthrange(year, month)[1])
+    month_rows = [row for row in rows if month_start.isoformat() <= str(row.get("date") or "")[:10] <= month_end.isoformat()]
+    month_program_count = len(month_rows)
+    month_attendees = sum(int(row.get("attendees") or 0) for row in month_rows)
+    selected_programs = events_by_date.get(selected_date, []) if selected_date else []
+
+    prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    month_names_en = list(pycalendar.month_name)
+    month_names_mr = ["", "जानेवारी", "फेब्रुवारी", "मार्च", "एप्रिल", "मे", "जून", "जुलै", "ऑगस्ट", "सप्टेंबर", "ऑक्टोबर", "नोव्हेंबर", "डिसेंबर"]
+    month_title = (month_names_mr if lang == "mr" else month_names_en)[month]
+    weekdays = ["सोम", "मंगळ", "बुध", "गुरु", "शुक्र", "शनि", "रवि"] if lang == "mr" else ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    return render_page(
+        "calendar", lang, page_link="calendar_view", calendar_year=year, calendar_month=month,
+        month_title=month_title, prev_year=prev_year, prev_month=prev_month,
+        next_year=next_year, next_month=next_month, today_year=today.year,
+        today_month=today.month, today_iso=today.isoformat(), weekdays=weekdays,
+        calendar_weeks=calendar_weeks, selected_date=selected_date,
+        selected_programs=selected_programs, month_program_count=month_program_count,
+        month_attendees=month_attendees,
+    )
 
 def delete_stored_photos(names):
     """Delete uploaded objects from the private Supabase Storage bucket."""
