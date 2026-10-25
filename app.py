@@ -142,10 +142,21 @@ def get_language():
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def format_display_date(value):
+    """Format stored ISO dates as DD-MM-YYYY without changing database values."""
+    if not value:
+        return "—"
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").strftime("%d-%m-%Y")
+    except (ValueError, TypeError):
+        return str(value)
+
+
 def render_page(page, lang="en", **kwargs):
     values = {"page":page, "lang":lang, "t":TEXT[lang], "message":kwargs.pop("message",""),
               "error":kwargs.pop("error",False), "logged_in":logged_in()}
     values.update(kwargs)
+    values["format_display_date"] = format_display_date
     return render_template_string(PAGE, **values)
 
 PAGE = r"""
@@ -285,7 +296,7 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 <form class="search-form" method="GET" action="{{ url_for('home') }}"><input type="hidden" name="lang" value="{{ lang }}"><input name="q" value="{{ query }}" placeholder="{{ t.search }}"><button class="button" type="submit">{{ t.search_button }} ⌕</button></form>
 {% if query %}<p><a href="{{ url_for('home',lang=lang) }}">{{ t.clear_search }}</a></p>{% endif %}
 {% if programs %}<div class="table-wrap"><table><thead><tr><th>#</th><th>{{ t.date }}</th><th>{{ t.station }}</th><th>{{ t.place }}</th><th>{{ t.name }}</th><th>{{ t.attendees }}</th><th>{{ t.actions }}</th></tr></thead><tbody>
-{% for p in programs %}<tr><td>{{ loop.index }}</td><td>{{ p.date }}</td><td>{{ p.station }}</td><td>{{ p.place }}</td><td>{{ p.name }}</td><td>{{ p.attendees }}</td><td><a class="badge" href="{{ url_for('program_details',program_id=p.id,lang=lang) }}">{{ t.view }}</a> <a class="badge" href="{{ url_for('edit_program',program_id=p.id,lang=lang) }}">{{ t.edit }}</a></td></tr>{% endfor %}
+{% for p in programs %}<tr><td>{{ loop.index }}</td><td>{{ format_display_date(p.date) }}</td><td>{{ p.station }}</td><td>{{ p.place }}</td><td>{{ p.name }}</td><td>{{ p.attendees }}</td><td><a class="badge" href="{{ url_for('program_details',program_id=p.id,lang=lang) }}">{{ t.view }}</a> <a class="badge" href="{{ url_for('edit_program',program_id=p.id,lang=lang) }}">{{ t.edit }}</a></td></tr>{% endfor %}
 </tbody></table></div>{% else %}<div class="empty">{{ t.no_programs }}</div>{% endif %}</div></section>
 {% elif page == 'form' %}
 <section class="welcome"><div class="eyebrow">PROGRAM MANAGEMENT</div><h1>{{ t.add_program if mode == 'add' else t.edit }}</h1><p>{{ t.intro }}</p></section>
@@ -329,7 +340,7 @@ start.addEventListener('click',()=>{if(listening)return;baseText=details.value.t
 {% elif page == 'details' %}
 <section class="welcome"><div class="eyebrow">PROGRAM RECORD</div><h1>{{ program.name }}</h1><p>{{ t.program_details }}</p></section>
 <section class="panel"><div class="panel-header"><h2>{{ t.program_details }}</h2></div><div class="panel-body">
-<div class="detail-grid"><div class="detail-item"><div class="detail-label">{{ t.date }}</div><div class="detail-value">{{ program.date }}</div></div><div class="detail-item"><div class="detail-label">{{ t.station }}</div><div class="detail-value">{{ program.station }}</div></div><div class="detail-item"><div class="detail-label">{{ t.place }}</div><div class="detail-value">{{ program.place }}</div></div><div class="detail-item"><div class="detail-label">{{ t.attendees }}</div><div class="detail-value">{{ program.attendees }}</div></div></div>
+<div class="detail-grid"><div class="detail-item"><div class="detail-label">{{ t.date }}</div><div class="detail-value">{{ format_display_date(program.date) }}</div></div><div class="detail-item"><div class="detail-label">{{ t.station }}</div><div class="detail-value">{{ program.station }}</div></div><div class="detail-item"><div class="detail-label">{{ t.place }}</div><div class="detail-value">{{ program.place }}</div></div><div class="detail-item"><div class="detail-label">{{ t.attendees }}</div><div class="detail-value">{{ program.attendees }}</div></div></div>
 <div class="form-group" style="margin-top:18px"><label>{{ t.details }}</label><div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ program.details or '—' }}</div></div>
 <div class="form-group"><label>{{ t.photos }}</label>{% if photos %}<div class="gallery">{% for photo in photos %}<a href="{{ url_for('uploaded_file',filename=photo.filename) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploaded_file',filename=photo.filename) }}" alt="Program photograph"></a>{% endfor %}</div>{% else %}<p>{{ t.no_photo }}</p>{% endif %}</div>
 <div class="actions"><a class="button" href="{{ url_for('download_pdf',program_id=program.id,lang=lang) }}">{{ t.download_pdf }}</a><a class="button secondary" href="{{ url_for('edit_program',program_id=program.id,lang=lang) }}">{{ t.edit }}</a><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.back }}</a>
@@ -421,6 +432,9 @@ def home():
             ]
         else:
             programs = all_rows
+
+        # Show dashboard rows alphabetically by place (case-insensitive).
+        programs.sort(key=lambda row: str(row.get("place") or "").strip().casefold())
     except Exception:
         app.logger.exception("Could not load programs from Supabase")
         return "Database connection failed. Check Render logs and Supabase setup.", 500
@@ -699,7 +713,7 @@ def download_pdf(program_id):
     col_w = (content_w - gap) / 2
     details_text = str(program.get("details") or "—")
     meta = [
-        (t["date"], str(program.get("date") or "—")),
+        (t["date"], format_display_date(program.get("date"))),
         (t["station"], str(program.get("station") or "—")),
         (t["place"], str(program.get("place") or "—")),
         (t["attendees"], str(program.get("attendees", "—"))),
