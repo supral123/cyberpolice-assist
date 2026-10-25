@@ -650,8 +650,26 @@ def download_pdf(program_id):
         from reportlab.pdfgen import canvas
         from reportlab.platypus import Paragraph
         from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
     except ImportError:
         return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.", 500
+
+    # Bundle this font with the app (fonts/Lohit-Devanagari.ttf) so mixed
+    # Marathi/Devanagari + English text is embedded in generated PDFs on Render.
+    unicode_font_path = os.path.join(BASE_DIR, "fonts", "Lohit-Devanagari.ttf")
+    pdf_font_regular = "Helvetica"
+    pdf_font_bold = "Helvetica-Bold"
+    if os.path.isfile(unicode_font_path):
+        try:
+            if "CyberPoliceUnicode" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont("CyberPoliceUnicode", unicode_font_path, shapable=True))
+            # Use one embedded Unicode font for both weights; glyph coverage is
+            # more important than synthetic bold for mixed-script program data.
+            pdf_font_regular = "CyberPoliceUnicode"
+            pdf_font_bold = "CyberPoliceUnicode"
+        except Exception:
+            app.logger.exception("Could not register the bundled Unicode PDF font")
 
     lang = get_language()
     t = TEXT[lang]
@@ -695,9 +713,9 @@ def download_pdf(program_id):
     def para(text, size, leading=None, color=ink, bold=False, alignment=TA_LEFT):
         safe_text = escape(str(text if text is not None else "—")).replace("\n", "<br/>")
         return Paragraph(safe_text, ParagraphStyle(
-            name=f"p_{size}_{bold}_{alignment}", fontName="Helvetica-Bold" if bold else "Helvetica",
-            fontSize=size, leading=leading or size * 1.28, textColor=color, alignment=alignment,
-            splitLongWords=1, spaceAfter=0, spaceBefore=0
+            name=f"p_{size}_{bold}_{alignment}", fontName=pdf_font_bold if bold else pdf_font_regular,
+            fontSize=size, leading=leading or size * 1.35, textColor=color, alignment=alignment,
+            splitLongWords=1, spaceAfter=0, spaceBefore=0, shaping=1
         ))
 
     def draw_paragraph(p, x, top_y, width):
@@ -711,14 +729,14 @@ def download_pdf(program_id):
     pdf.setFillColor(cyan)
     pdf.rect(0, page_h - 95, page_w, 4, fill=1, stroke=0)
     pdf.setFillColor(white)
-    pdf.setFont("Helvetica-Bold", 9)
-    pdf.drawString(margin, page_h - 25, "CYBERPOLICE ASSIST  /  PROGRAM MANAGEMENT")
-    pdf.setFont("Helvetica-Bold", 19)
+    pdf.setFont(pdf_font_bold, 9)
+    pdf.drawString(margin, page_h - 25, "CYBERPOLICE ASSIST  /  PROGRAM MANAGEMENT", shaping=True)
+    pdf.setFont(pdf_font_bold, 19)
     report_title = t["report"]
-    pdf.drawString(margin, page_h - 52, report_title[:70])
-    pdf.setFont("Helvetica", 8)
+    pdf.drawString(margin, page_h - 52, report_title[:70], shaping=True)
+    pdf.setFont(pdf_font_regular, 8)
     pdf.setFillColor(colors.HexColor("#C9D9EA"))
-    pdf.drawString(margin, page_h - 72, "OFFICIAL PROGRAM RECORD")
+    pdf.drawString(margin, page_h - 72, "OFFICIAL PROGRAM RECORD", shaping=True)
     pdf.setFillColor(ink)
 
     top = page_h - 113
@@ -797,17 +815,67 @@ def download_pdf(program_id):
     details_para = para(details_text, font_size, value_leading, ink, False)
     draw_paragraph(details_para, inner_x, inner_top - dh - 4, content_w - 20)
 
+    # Reclaim the unused lower half of page 1 for photographs. The details
+    # section remains intact; up to four images are placed here when space allows.
+    first_page_photo_count = 0
+    if photo_files:
+        details_bottom = y - details_h
+        photo_grid_top = details_bottom - 12
+        photo_grid_bottom = margin + 27
+        photo_available_h = photo_grid_top - photo_grid_bottom
+        photo_rows = 2 if photo_available_h >= 190 else (1 if photo_available_h >= 90 else 0)
+        first_page_photo_count = min(len(photo_files), photo_rows * 2)
+        if first_page_photo_count:
+            grid_gap_x = 8 * mm
+            grid_gap_y = 5 * mm
+            photo_cols = 2
+            photo_cell_w = (content_w - grid_gap_x) / photo_cols
+            photo_cell_h = (photo_available_h - grid_gap_y * (photo_rows - 1)) / photo_rows
+            image_pad = 6
+            caption_h = 15
+            pdf.setFillColor(navy2)
+            pdf.setFont(pdf_font_bold, 8)
+            pdf.drawString(margin, photo_grid_top + 1, "PROGRAM PHOTOGRAPHS" if lang == "en" else "कार्यक्रमाची छायाचित्रे", shaping=True)
+            for local_index, (filename, path) in enumerate(photo_files[:first_page_photo_count]):
+                col = local_index % 2
+                row = local_index // 2
+                x = margin + col * (photo_cell_w + grid_gap_x)
+                cell_top = photo_grid_top - 10 - row * (photo_cell_h + grid_gap_y)
+                cell_bottom = cell_top - photo_cell_h
+                pdf.setFillColor(white)
+                pdf.roundRect(x, cell_bottom, photo_cell_w, photo_cell_h, 7, fill=1, stroke=0)
+                pdf.setStrokeColor(border)
+                pdf.setLineWidth(0.6)
+                pdf.roundRect(x, cell_bottom, photo_cell_w, photo_cell_h, 7, fill=0, stroke=1)
+                try:
+                    reader = ImageReader(path)
+                    iw, ih = reader.getSize()
+                    image_w = photo_cell_w - 2 * image_pad
+                    image_h = photo_cell_h - caption_h - 2 * image_pad
+                    if iw > 0 and ih > 0 and image_w > 0 and image_h > 0:
+                        scale = min(image_w / iw, image_h / ih)
+                        draw_w, draw_h = iw * scale, ih * scale
+                        img_x = x + (photo_cell_w - draw_w) / 2
+                        img_y = cell_bottom + caption_h + image_pad + (image_h - draw_h) / 2
+                        pdf.drawImage(reader, img_x, img_y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
+                except Exception:
+                    app.logger.exception("Could not embed first-page photograph %s in PDF", filename)
+                pdf.setFillColor(navy2)
+                pdf.setFont(pdf_font_bold, 7)
+                pdf.drawString(x + image_pad, cell_bottom + 5, f"PHOTO {local_index + 1:02d}", shaping=True)
+
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     pdf.setStrokeColor(border)
     pdf.line(margin, margin + 13, page_w - margin, margin + 13)
     pdf.setFillColor(muted)
-    pdf.setFont("Helvetica", 7)
-    pdf.drawString(margin, margin, f"{t['report_generated']}: {generated}")
-    pdf.drawRightString(page_w - margin, margin, "PAGE 1  •  PROGRAM INFORMATION")
+    pdf.setFont(pdf_font_regular, 7)
+    pdf.drawString(margin, margin, f"{t['report_generated']}: {generated}", shaping=True)
+    pdf.drawRightString(page_w - margin, margin, "PAGE 1  •  PROGRAM INFORMATION", shaping=True)
     pdf.showPage()
 
     # -------------------- PHOTO PAGES: EXACTLY 4 PHOTOS PER PAGE --------------------
-    if photo_files:
+    remaining_photo_files = photo_files[first_page_photo_count:]
+    if remaining_photo_files:
         photo_title = t["photo_page"]
         cols = 2
         grid_gap_x = 10 * mm
@@ -823,20 +891,20 @@ def download_pdf(program_id):
         image_w = cell_w - 2 * image_pad
         image_h = cell_h - caption_h - 2 * image_pad
 
-        for start in range(0, len(photo_files), 4):
-            chunk = photo_files[start:start + 4]
+        for start in range(0, len(remaining_photo_files), 4):
+            chunk = remaining_photo_files[start:start + 4]
             page_number = 2 + start // 4
             pdf.setFillColor(navy)
             pdf.rect(0, page_h - 82, page_w, 82, fill=1, stroke=0)
             pdf.setFillColor(cyan)
             pdf.rect(0, page_h - 86, page_w, 4, fill=1, stroke=0)
             pdf.setFillColor(white)
-            pdf.setFont("Helvetica-Bold", 15)
-            pdf.drawString(margin, page_h - 35, photo_title[:75])
+            pdf.setFont(pdf_font_bold, 15)
+            pdf.drawString(margin, page_h - 35, photo_title[:75], shaping=True)
             pdf.setFillColor(colors.HexColor("#C9D9EA"))
-            pdf.setFont("Helvetica", 8)
-            pdf.drawString(margin, page_h - 55, str(program.get("name") or t["title"])[:100])
-            pdf.drawRightString(page_w - margin, page_h - 55, f"{len(photo_files)} PHOTOS")
+            pdf.setFont(pdf_font_regular, 8)
+            pdf.drawString(margin, page_h - 55, str(program.get("name") or t["title"])[:100], shaping=True)
+            pdf.drawRightString(page_w - margin, page_h - 55, f"{len(photo_files)} PHOTOS", shaping=True)
 
             for local_index, (filename, path) in enumerate(chunk):
                 col = local_index % 2
@@ -862,32 +930,31 @@ def download_pdf(program_id):
                 except Exception:
                     app.logger.exception("Could not embed photograph %s in PDF", filename)
                     pdf.setFillColor(muted)
-                    pdf.setFont("Helvetica", 9)
-                    pdf.drawCentredString(x + cell_w / 2, cell_bottom + cell_h / 2, "Photograph unavailable")
+                    pdf.setFont(pdf_font_regular, 9)
+                    pdf.drawCentredString(x + cell_w / 2, cell_bottom + cell_h / 2, "Photograph unavailable", shaping=True)
 
-                photo_number = start + local_index + 1
+                photo_number = first_page_photo_count + start + local_index + 1
                 pdf.setFillColor(navy2)
-                pdf.setFont("Helvetica-Bold", 8)
+                pdf.setFont(pdf_font_bold, 8)
                 caption = f"PHOTO {photo_number:02d}"
-                pdf.drawString(x + image_pad, cell_bottom + 9, caption)
+                pdf.drawString(x + image_pad, cell_bottom + 9, caption, shaping=True)
                 pdf.setFillColor(muted)
-                pdf.setFont("Helvetica", 6.5)
+                pdf.setFont(pdf_font_regular, 6.5)
                 display_name = filename if len(filename) <= 34 else filename[:31] + "..."
-                pdf.drawRightString(x + cell_w - image_pad, cell_bottom + 9, display_name)
+                pdf.drawRightString(x + cell_w - image_pad, cell_bottom + 9, display_name, shaping=True)
 
             pdf.setStrokeColor(border)
             pdf.line(margin, margin + 14, page_w - margin, margin + 14)
             pdf.setFillColor(muted)
-            pdf.setFont("Helvetica", 7)
-            pdf.drawString(margin, margin, f"{t['report_generated']}: {generated}")
-            pdf.drawRightString(page_w - margin, margin, f"PAGE {page_number}  •  PHOTOGRAPHS")
+            pdf.setFont(pdf_font_regular, 7)
+            pdf.drawString(margin, margin, f"{t['report_generated']}: {generated}", shaping=True)
+            pdf.drawRightString(page_w - margin, margin, f"PAGE {page_number}  •  PHOTOGRAPHS", shaping=True)
             pdf.showPage()
 
     pdf.save()
     buffer.seek(0)
     return send_file(buffer, mimetype="application/pdf", as_attachment=True,
                      download_name=f"program_report_{program_id}.pdf")
-
 
 @app.after_request
 def security_headers(response):
