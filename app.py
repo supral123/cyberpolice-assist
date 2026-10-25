@@ -435,14 +435,14 @@ def home():
 
         # Show dashboard rows alphabetically by place (case-insensitive).
         
-# Sort by date descending first, then place A-Z for the same date.
-programs.sort(
-    key=lambda row: str(row.get("place") or "").strip().casefold()
-)
-programs.sort(
-    key=lambda row: str(row.get("date") or "")[:10],
-    reverse=True
-)
+        # Sort by date descending first, then place A-Z for the same date.
+        programs.sort(
+            key=lambda row: str(row.get("place") or "").strip().casefold()
+        )
+        programs.sort(
+            key=lambda row: str(row.get("date") or "")[:10],
+            reverse=True
+        )
 
     except Exception:
         app.logger.exception("Could not load programs from Supabase")
