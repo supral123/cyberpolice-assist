@@ -51,6 +51,10 @@ TEXT = {
         "station_placeholder":"Enter police station name","place_placeholder":"Enter program location",
         "name_placeholder":"Enter program name","no_photo":"No photographs uploaded",
         "program_details":"Program Information","clear_search":"Clear Search","download_pdf":"Download PDF Report",
+        "range_reports":"Download Reports by Date Range","from_date":"From date","to_date":"To date",
+        "report_format":"Report format","pdf_option":"Combined PDF","excel_option":"Excel workbook (.xlsx)",
+        "download_range":"Download selected period","invalid_date_range":"Please select a valid date range.",
+        "no_range_programs":"No programs were found in the selected date range.",
         "confirm_delete":"Delete this program and its photographs? This cannot be undone.",
         "deleted":"Program deleted.","existing_photos":"Existing photographs","add_more_photos":"Add more photographs",
         "footer":"PRIVATE ADMIN AREA • CYBER AWARENESS","not_configured":"Admin password is not configured. Set ADMIN_PASSWORD in your hosting environment.",
@@ -85,6 +89,10 @@ TEXT = {
         "station_placeholder":"पोलीस स्टेशनचे नाव लिहा","place_placeholder":"कार्यक्रमाचे ठिकाण लिहा",
         "name_placeholder":"कार्यक्रमाचे नाव लिहा","no_photo":"छायाचित्रे अपलोड केलेली नाहीत",
         "program_details":"कार्यक्रमाची माहिती","clear_search":"शोध काढा","download_pdf":"PDF अहवाल डाउनलोड करा",
+        "range_reports":"दिनांकानुसार अहवाल डाउनलोड करा","from_date":"पासून दिनांक","to_date":"पर्यंत दिनांक",
+        "report_format":"अहवालाचा प्रकार","pdf_option":"एकत्रित PDF","excel_option":"Excel फाईल (.xlsx)",
+        "download_range":"निवडलेल्या कालावधीचा अहवाल डाउनलोड करा","invalid_date_range":"कृपया योग्य दिनांक कालावधी निवडा.",
+        "no_range_programs":"निवडलेल्या कालावधीत कोणतेही कार्यक्रम आढळले नाहीत.",
         "confirm_delete":"हा कार्यक्रम आणि छायाचित्रे हटवायची? ही कृती पूर्ववत करता येणार नाही.",
         "deleted":"कार्यक्रम हटवला.","existing_photos":"सध्याची छायाचित्रे","add_more_photos":"अधिक छायाचित्रे जोडा",
         "footer":"खासगी प्रशासक विभाग • सायबर जनजागृती",
@@ -297,6 +305,7 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 <div class="actions"><a class="button" href="{{ url_for('add_program',lang=lang) }}">＋ {{ t.add_program }}</a></div>
 <section class="panel"><div class="panel-header"><h2>▤ {{ t.all_programs }}</h2></div><div class="panel-body">
 <form class="search-form" method="GET" action="{{ url_for('home') }}"><input type="hidden" name="lang" value="{{ lang }}"><input name="q" value="{{ query }}" placeholder="{{ t.search }}"><button class="button" type="submit">{{ t.search_button }} ⌕</button></form>
+<div class="panel" style="margin:18px 0;border:1px solid var(--line);background:var(--panel)"><div class="panel-header"><h3 style="margin:0">⇩ {{ t.range_reports }}</h3></div><div class="panel-body"><form method="POST" action="{{ url_for('download_range_report',lang=lang) }}" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;align-items:end"><div><label for="rangeStart">{{ t.from_date }}</label><input id="rangeStart" type="date" name="start_date" required></div><div><label for="rangeEnd">{{ t.to_date }}</label><input id="rangeEnd" type="date" name="end_date" required></div><div><label for="rangeFormat">{{ t.report_format }}</label><select id="rangeFormat" name="format"><option value="pdf">{{ t.pdf_option }}</option><option value="excel">{{ t.excel_option }}</option></select></div><div><button class="button" type="submit" style="width:100%">{{ t.download_range }}</button></div></form><p class="help" style="margin-bottom:0">Choose a start and end date to export all events in that period into one file.</p></div></div>
 {% if query %}<p><a href="{{ url_for('home',lang=lang) }}">{{ t.clear_search }}</a></p>{% endif %}
 {% if programs %}<div class="table-wrap"><table><thead><tr><th>#</th><th>{{ t.date }}</th><th>{{ t.station }}</th><th>{{ t.place }}</th><th>{{ t.name }}</th><th>{{ t.attendees }}</th><th>{{ t.actions }}</th></tr></thead><tbody>
 {% for p in programs %}<tr><td>{{ loop.index }}</td><td>{{ format_display_date(p.date) }}</td><td>{{ p.station }}</td><td>{{ p.place }}</td><td>{{ p.name }}</td><td>{{ p.attendees }}</td><td><a class="badge" href="{{ url_for('program_details',program_id=p.id,lang=lang) }}">{{ t.view }}</a> <a class="badge" href="{{ url_for('edit_program',program_id=p.id,lang=lang) }}">{{ t.edit }}</a></td></tr>{% endfor %}
@@ -997,6 +1006,221 @@ def download_pdf(program_id):
     buffer.seek(0)
     return send_file(buffer, mimetype="application/pdf", as_attachment=True,
                      download_name=f"program_report_{program_id}.pdf")
+
+@app.route("/reports/range", methods=["POST"])
+@login_required
+def download_range_report():
+    """Export every program within an inclusive date range to one PDF or XLSX workbook."""
+    lang = get_language()
+    start_raw = (request.form.get("start_date") or "").strip()
+    end_raw = (request.form.get("end_date") or "").strip()
+    export_format = (request.form.get("format") or "pdf").strip().lower()
+    try:
+        start_date = datetime.strptime(start_raw, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_raw, "%Y-%m-%d").date()
+        if start_date > end_date:
+            raise ValueError("start date is after end date")
+    except ValueError:
+        return TEXT[lang]["invalid_date_range"], 400
+
+    try:
+        db = get_supabase()
+        all_programs = db.table("programs").select("*").execute().data or []
+        selected = []
+        for row in all_programs:
+            raw_date = str(row.get("date") or "")[:10]
+            try:
+                row_date = datetime.strptime(raw_date, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if start_date <= row_date <= end_date:
+                selected.append(row)
+        selected.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("place") or "").casefold(), int(r.get("id") or 0)))
+        if not selected:
+            return TEXT[lang]["no_range_programs"], 404
+        selected_ids = {int(r["id"]) for r in selected if r.get("id") is not None}
+        photo_rows = db.table("program_photos").select("program_id,filename").execute().data or []
+        photos_by_program = {}
+        for photo in photo_rows:
+            try:
+                pid = int(photo.get("program_id"))
+            except (TypeError, ValueError):
+                continue
+            if pid in selected_ids and photo.get("filename"):
+                photos_by_program.setdefault(pid, []).append(os.path.basename(str(photo["filename"])))
+    except Exception:
+        app.logger.exception("Could not load date-range report data from Supabase")
+        return "Could not load report data from the database. Check Render logs.", 500
+
+    total_attendees = sum(int(row.get("attendees") or 0) for row in selected)
+    date_label = f"{start_date.isoformat()}_to_{end_date.isoformat()}"
+
+    if export_format == "excel":
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            return "Excel export requires openpyxl. Add openpyxl>=3.1.5 to requirements.txt and redeploy.", 500
+
+        workbook = Workbook()
+        summary = workbook.active
+        summary.title = "Summary"
+        summary.append(["CyberPolice Assist - Cyber Awareness Program Report"])
+        summary.append(["Start date", start_date.isoformat()])
+        summary.append(["End date", end_date.isoformat()])
+        summary.append(["Total programs", len(selected)])
+        summary.append(["Total attendees", total_attendees])
+        summary["A1"].font = Font(bold=True, size=15, color="FFFFFF")
+        summary["A1"].fill = PatternFill("solid", fgColor="0B1730")
+        summary.column_dimensions["A"].width = 28
+        summary.column_dimensions["B"].width = 34
+
+        sheet = workbook.create_sheet("Program Reports")
+        headers = ["Program ID", "Date", "Police Station", "Place", "Program Name", "Attendees", "Program Details", "Photograph Count"]
+        sheet.append(headers)
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="0B1730")
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        for row in selected:
+            pid = int(row.get("id") or 0)
+            sheet.append([
+                pid, str(row.get("date") or ""), str(row.get("station") or ""),
+                str(row.get("place") or ""), str(row.get("name") or ""),
+                int(row.get("attendees") or 0), str(row.get("details") or ""),
+                len(photos_by_program.get(pid, []))
+            ])
+            for cell in sheet[sheet.max_row]:
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+        widths = [12, 14, 25, 25, 30, 14, 65, 18]
+        for idx, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(idx)].width = width
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+
+        photo_sheet = workbook.create_sheet("Photographs")
+        photo_sheet.append(["Program ID", "Date", "Program Name", "Storage Filename"])
+        for cell in photo_sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="0B1730")
+        for row in selected:
+            pid = int(row.get("id") or 0)
+            for filename in photos_by_program.get(pid, []):
+                photo_sheet.append([pid, str(row.get("date") or ""), str(row.get("name") or ""), filename])
+        for col, width in {"A":12,"B":14,"C":32,"D":48}.items():
+            photo_sheet.column_dimensions[col].width = width
+        photo_sheet.freeze_panes = "A2"
+        photo_sheet.auto_filter.ref = photo_sheet.dimensions
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=f"program_reports_{date_label}.xlsx")
+
+    if export_format != "pdf":
+        return "Unsupported report format.", 400
+
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
+    except ImportError:
+        return "PDF support is not installed. Add reportlab to requirements.txt and redeploy.", 500
+
+    font_name = "Helvetica"
+    font_path = os.path.join(BASE_DIR, "fonts", "Lohit-Devanagari.ttf")
+    if os.path.isfile(font_path):
+        try:
+            if "CyberPoliceRangeUnicode" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont("CyberPoliceRangeUnicode", font_path, shapable=True))
+            font_name = "CyberPoliceRangeUnicode"
+        except Exception:
+            app.logger.exception("Could not register Unicode font for date-range PDF")
+
+    output = BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=16*mm, leftMargin=16*mm,
+                            topMargin=17*mm, bottomMargin=17*mm, title="Cyber Awareness Program Report")
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="RangeTitle", parent=styles["Title"], fontName=font_name,
+                              fontSize=17, leading=22, textColor=colors.HexColor("#0B1730"), alignment=TA_CENTER, spaceAfter=6*mm))
+    styles.add(ParagraphStyle(name="RangeBody", parent=styles["BodyText"], fontName=font_name,
+                              fontSize=9, leading=13, spaceAfter=3*mm, wordWrap="CJK"))
+    styles.add(ParagraphStyle(name="RangeHeading", parent=styles["Heading2"], fontName=font_name,
+                              fontSize=12, leading=15, textColor=colors.HexColor("#087E9A"), spaceBefore=2*mm, spaceAfter=3*mm))
+    story = [Paragraph("CYBER AWARENESS PROGRAM REPORT", styles["RangeTitle"]),
+             Paragraph(f"Period: {start_date.strftime('%d-%m-%Y')} to {end_date.strftime('%d-%m-%Y')}", styles["RangeBody"]),
+             Paragraph(f"Total programs: {len(selected)} &nbsp;&nbsp; | &nbsp;&nbsp; Total attendees: {total_attendees}", styles["RangeBody"]),
+             Spacer(1, 4*mm)]
+    storage = get_supabase().storage.from_(STORAGE_BUCKET)
+    for idx, row in enumerate(selected):
+        if idx:
+            story.append(PageBreak())
+        pid = int(row.get("id") or 0)
+        story.append(Paragraph(f"{idx+1}. {escape(str(row.get('name') or 'Program'))}", styles["RangeHeading"]))
+        info = [
+            ["Date", str(row.get("date") or ""), "Police Station", str(row.get("station") or "")],
+            ["Place", str(row.get("place") or ""), "Attendees", str(row.get("attendees") or 0)],
+        ]
+        info_table = Table([[Paragraph(escape(str(c)), styles["RangeBody"]) for c in r] for r in info],
+                           colWidths=[24*mm, 55*mm, 27*mm, 55*mm])
+        info_table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#EFF5FA")),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#D7E2EE")),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("LEFTPADDING", (0,0), (-1,-1), 5), ("RIGHTPADDING", (0,0), (-1,-1), 5),
+            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ]))
+        story.extend([info_table, Spacer(1, 3*mm), Paragraph("Program Details", styles["RangeHeading"])])
+        details = str(row.get("details") or "").strip()
+        story.append(Paragraph(escape(details).replace("\n", "<br/>") if details else "—", styles["RangeBody"]))
+        photo_flowables = []
+        for filename in photos_by_program.get(pid, []):
+            try:
+                image_bytes = storage.download(filename)
+                if image_bytes:
+                    photo_flowables.append(Image(BytesIO(image_bytes), width=72*mm, height=48*mm, kind="proportional"))
+            except Exception:
+                app.logger.exception("Could not fetch range-report photograph %s", filename)
+        if photo_flowables:
+            story.append(Paragraph("Photographs", styles["RangeHeading"]))
+            photo_rows = []
+            for i in range(0, len(photo_flowables), 2):
+                photo_rows.append([photo_flowables[i], photo_flowables[i+1] if i+1 < len(photo_flowables) else ""])
+            photo_table = Table(photo_rows, colWidths=[84*mm, 84*mm], hAlign="LEFT")
+            photo_table.setStyle(TableStyle([
+                ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (0,0), (-1,-1), "CENTER"),
+                ("BOX", (0,0), (-1,-1), 0.4, colors.HexColor("#D7E2EE")),
+                ("INNERGRID", (0,0), (-1,-1), 0.3, colors.HexColor("#E2EAF2")),
+                ("LEFTPADDING", (0,0), (-1,-1), 5), ("RIGHTPADDING", (0,0), (-1,-1), 5),
+                ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+            ]))
+            story.extend([Spacer(1, 2*mm), photo_table])
+
+    def footer(canvas, document):
+        canvas.saveState()
+        canvas.setFont(font_name, 8)
+        canvas.setFillColor(colors.HexColor("#64748B"))
+        canvas.drawString(16*mm, 9*mm, f"Generated: {datetime.now().strftime('%d-%m-%Y %H:%M')}")
+        canvas.drawRightString(A4[0]-16*mm, 9*mm, f"Page {document.page}")
+        canvas.restoreState()
+
+    try:
+        doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    except Exception:
+        app.logger.exception("Could not build combined date-range PDF")
+        return "Could not generate combined PDF. Check Render logs.", 500
+    output.seek(0)
+    return send_file(output, mimetype="application/pdf", as_attachment=True,
+                     download_name=f"program_reports_{date_label}.pdf")
+
 
 @app.after_request
 def security_headers(response):
