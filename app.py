@@ -682,6 +682,83 @@ def uploaded_file(filename):
     mime_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
     return send_file(BytesIO(image_bytes), mimetype=mime_type, download_name=safe, max_age=0)
 
+def style_export_workbook(workbook):
+    """Apply a clean, readable, print-friendly design to exported Excel sheets."""
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    navy = "10213A"
+    cyan = "19BCE5"
+    pale_blue = "EAF4FA"
+    pale_cyan = "F0FBFE"
+    white = "FFFFFF"
+    text_color = "203047"
+    border_color = "D7E3EE"
+    thin = Side(style="thin", color=border_color)
+
+    for ws in workbook.worksheets:
+        ws.sheet_view.showGridLines = False
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = 0.25
+        ws.page_margins.right = 0.25
+        ws.page_margins.top = 0.5
+        ws.page_margins.bottom = 0.5
+        ws.sheet_properties.tabColor = cyan if ws.title == "Summary" else navy
+
+        if ws.title == "Summary":
+            # A1 contains the report title and B1 is intentionally blank.
+            if ws.max_column >= 2 and not any(str(rng) == "A1:B1" for rng in ws.merged_cells.ranges):
+                ws.merge_cells("A1:B1")
+            ws.row_dimensions[1].height = 34
+            title = ws["A1"]
+            title.fill = PatternFill("solid", fgColor=navy)
+            title.font = Font(name="Aptos Display", size=16, bold=True, color=white)
+            title.alignment = Alignment(horizontal="left", vertical="center")
+            for row_idx in range(2, ws.max_row + 1):
+                ws.row_dimensions[row_idx].height = 27
+                label = ws.cell(row_idx, 1)
+                value = ws.cell(row_idx, 2)
+                label.fill = PatternFill("solid", fgColor=pale_blue if row_idx % 2 == 0 else "F5F8FC")
+                label.font = Font(name="Aptos", size=10, bold=True, color=navy)
+                label.alignment = Alignment(vertical="center", wrap_text=True)
+                value.fill = PatternFill("solid", fgColor=white if row_idx % 2 == 0 else "FAFCFE")
+                value.font = Font(name="Aptos", size=10, color=text_color)
+                value.alignment = Alignment(vertical="center", wrap_text=True)
+                for cell in (label, value):
+                    cell.border = Border(bottom=thin)
+            ws.column_dimensions["A"].width = 27
+            ws.column_dimensions["B"].width = 68
+            ws.freeze_panes = "A2"
+            ws.print_area = f"A1:B{ws.max_row}"
+            ws.page_setup.orientation = "portrait"
+        else:
+            # Format tabular sheets with a strong header, readable wrapping, and banded rows.
+            ws.row_dimensions[1].height = 32
+            for cell in ws[1]:
+                cell.fill = PatternFill("solid", fgColor=navy)
+                cell.font = Font(name="Aptos", size=10, bold=True, color=white)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = Border(bottom=Side(style="medium", color=cyan))
+            for row_idx in range(2, ws.max_row + 1):
+                ws.row_dimensions[row_idx].height = 34 if ws.title == "Photographs" else 42
+                for cell in ws[row_idx]:
+                    cell.fill = PatternFill("solid", fgColor=white if row_idx % 2 == 0 else pale_cyan)
+                    cell.font = Font(name="Aptos", size=10, color=text_color)
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+                    cell.border = Border(bottom=thin)
+            ws.freeze_panes = "A2"
+            if ws.max_row >= 1 and ws.max_column >= 1:
+                ws.auto_filter.ref = ws.dimensions
+            ws.page_setup.orientation = "landscape"
+            ws.print_title_rows = "1:1"
+            ws.sheet_format.defaultRowHeight = 22
+
+        # Keep long details readable on screen and on paper.
+        ws.sheet_view.zoomScale = 90
+
+
 @app.route("/program/<int:program_id>/excel")
 @login_required
 def download_excel(program_id):
@@ -766,6 +843,7 @@ def download_excel(program_id):
     if photo_sheet.max_row > 1:
         photo_sheet.auto_filter.ref = photo_sheet.dimensions
 
+    style_export_workbook(workbook)
     output = BytesIO()
     workbook.save(output)
     output.seek(0)
@@ -1207,6 +1285,7 @@ def download_range_report():
         photo_sheet.freeze_panes = "A2"
         photo_sheet.auto_filter.ref = photo_sheet.dimensions
 
+        style_export_workbook(workbook)
         output = BytesIO()
         workbook.save(output)
         output.seek(0)
