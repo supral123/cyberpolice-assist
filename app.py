@@ -434,7 +434,16 @@ def home():
             programs = all_rows
 
         # Show dashboard rows alphabetically by place (case-insensitive).
-        programs.sort(key=lambda row: str(row.get("place") or "").strip().casefold())
+        
+# Sort by date descending first, then place A-Z for the same date.
+programs.sort(
+    key=lambda row: str(row.get("place") or "").strip().casefold()
+)
+programs.sort(
+    key=lambda row: str(row.get("date") or "")[:10],
+    reverse=True
+)
+
     except Exception:
         app.logger.exception("Could not load programs from Supabase")
         return "Database connection failed. Check Render logs and Supabase setup.", 500
