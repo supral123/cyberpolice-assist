@@ -50,7 +50,7 @@ TEXT = {
         "details_placeholder":"Enter program details, topics covered, officers' names, outcomes, etc.",
         "station_placeholder":"Enter police station name","place_placeholder":"Enter program location",
         "name_placeholder":"Enter program name","no_photo":"No photographs uploaded",
-        "program_details":"Program Information","clear_search":"Clear Search","download_pdf":"Download PDF Report",
+        "program_details":"Program Information","clear_search":"Clear Search","download_pdf":"Download PDF Report","download_excel":"Download Excel Report",
         "range_reports":"Download Reports by Date Range","from_date":"From date","to_date":"To date",
         "report_format":"Report format","pdf_option":"Combined PDF","excel_option":"Excel workbook (.xlsx)",
         "download_range":"Download selected period","invalid_date_range":"Please select a valid date range.",
@@ -88,7 +88,7 @@ TEXT = {
         "details_placeholder":"कार्यक्रमाची माहिती, विषय, अधिकाऱ्यांची नावे, निष्कर्ष इत्यादी लिहा.",
         "station_placeholder":"पोलीस स्टेशनचे नाव लिहा","place_placeholder":"कार्यक्रमाचे ठिकाण लिहा",
         "name_placeholder":"कार्यक्रमाचे नाव लिहा","no_photo":"छायाचित्रे अपलोड केलेली नाहीत",
-        "program_details":"कार्यक्रमाची माहिती","clear_search":"शोध काढा","download_pdf":"PDF अहवाल डाउनलोड करा",
+        "program_details":"कार्यक्रमाची माहिती","clear_search":"शोध काढा","download_pdf":"PDF अहवाल डाउनलोड करा","download_excel":"Excel अहवाल डाउनलोड करा",
         "range_reports":"दिनांकानुसार अहवाल डाउनलोड करा","from_date":"पासून दिनांक","to_date":"पर्यंत दिनांक",
         "report_format":"अहवालाचा प्रकार","pdf_option":"एकत्रित PDF","excel_option":"Excel फाईल (.xlsx)",
         "download_range":"निवडलेल्या कालावधीचा अहवाल डाउनलोड करा","invalid_date_range":"कृपया योग्य दिनांक कालावधी निवडा.",
@@ -358,7 +358,7 @@ start.addEventListener('click',()=>{if(listening)return;baseText=details.value.t
 <div class="detail-grid"><div class="detail-item"><div class="detail-label">{{ t.date }}</div><div class="detail-value">{{ format_display_date(program.date) }}</div></div><div class="detail-item"><div class="detail-label">{{ t.station }}</div><div class="detail-value">{{ program.station }}</div></div><div class="detail-item"><div class="detail-label">{{ t.place }}</div><div class="detail-value">{{ program.place }}</div></div><div class="detail-item"><div class="detail-label">{{ t.attendees }}</div><div class="detail-value">{{ program.attendees }}</div></div></div>
 <div class="form-group" style="margin-top:18px"><label>{{ t.details }}</label><div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ program.details or '—' }}</div></div>
 <div class="form-group"><label>{{ t.photos }}</label>{% if photos %}<div class="gallery">{% for photo in photos %}<a href="{{ url_for('uploaded_file',filename=photo.filename) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploaded_file',filename=photo.filename) }}" alt="Program photograph"></a>{% endfor %}</div>{% else %}<p>{{ t.no_photo }}</p>{% endif %}</div>
-<div class="actions"><a class="button" href="{{ url_for('download_pdf',program_id=program.id,lang=lang) }}">{{ t.download_pdf }}</a><a class="button secondary" href="{{ url_for('edit_program',program_id=program.id,lang=lang) }}">{{ t.edit }}</a><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.back }}</a>
+<div class="actions"><a class="button" href="{{ url_for('download_pdf',program_id=program.id,lang=lang) }}">{{ t.download_pdf }}</a><a class="button" href="{{ url_for('download_excel',program_id=program.id,lang=lang) }}">{{ t.download_excel }}</a><a class="button secondary" href="{{ url_for('edit_program',program_id=program.id,lang=lang) }}">{{ t.edit }}</a><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.back }}</a>
 <form method="POST" action="{{ url_for('delete_program',program_id=program.id,lang=lang) }}" onsubmit="return confirm({{ t.confirm_delete|tojson }});"><button class="button danger" type="submit">{{ t.delete }}</button></form></div>
 </div></section>
 {% endif %}</main><footer class="footer">{{ t.footer }}</footer>
@@ -681,6 +681,100 @@ def uploaded_file(filename):
         abort(404)
     mime_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
     return send_file(BytesIO(image_bytes), mimetype=mime_type, download_name=safe, max_age=0)
+
+@app.route("/program/<int:program_id>/excel")
+@login_required
+def download_excel(program_id):
+    """Download one program record as an Excel workbook."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return "Excel export requires openpyxl. Add openpyxl>=3.1.5 to requirements.txt and redeploy.", 500
+
+    try:
+        db = get_supabase()
+        found = db.table("programs").select("*").eq("id", program_id).limit(1).execute().data or []
+        program = found[0] if found else None
+        if program is None:
+            abort(404)
+        photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
+    except Exception:
+        app.logger.exception("Could not load single program for Excel export")
+        return "Could not load report data from the database. Check Render logs.", 500
+
+    # Prevent user-entered text from being interpreted as an Excel formula.
+    def safe_cell(value):
+        text = "" if value is None else str(value)
+        if text.startswith(("=", "+", "-", "@")):
+            return "'" + text
+        return text
+
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Summary"
+    summary.append(["CyberPolice Assist - Cyber Awareness Program Report"])
+    summary.append(["Program ID", safe_cell(program.get("id"))])
+    summary.append(["Date", safe_cell(program.get("date"))])
+    summary.append(["Police Station", safe_cell(program.get("station"))])
+    summary.append(["Place", safe_cell(program.get("place"))])
+    summary.append(["Program Name", safe_cell(program.get("name"))])
+    summary.append(["Number of Attendees", int(program.get("attendees") or 0)])
+    summary.append(["Photograph Count", len(photos)])
+    summary["A1"].font = Font(bold=True, size=15, color="FFFFFF")
+    summary["A1"].fill = PatternFill("solid", fgColor="0B1730")
+    summary.column_dimensions["A"].width = 27
+    summary.column_dimensions["B"].width = 60
+    for row in summary.iter_rows(min_row=2):
+        row[0].font = Font(bold=True, color="0B1730")
+        row[0].fill = PatternFill("solid", fgColor="EAF2F8")
+        row[1].alignment = Alignment(wrap_text=True, vertical="top")
+
+    sheet = workbook.create_sheet("Program Report")
+    headers = ["Program ID", "Date", "Police Station", "Place", "Program Name", "Attendees", "Program Details", "Photograph Count"]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0B1730")
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    sheet.append([
+        int(program.get("id") or 0), safe_cell(program.get("date")), safe_cell(program.get("station")),
+        safe_cell(program.get("place")), safe_cell(program.get("name")), int(program.get("attendees") or 0),
+        safe_cell(program.get("details")), len(photos)
+    ])
+    for cell in sheet[2]:
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    for idx, width in enumerate([12, 14, 25, 25, 30, 14, 65, 18], start=1):
+        sheet.column_dimensions[get_column_letter(idx)].width = width
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+
+    photo_sheet = workbook.create_sheet("Photographs")
+    photo_sheet.append(["Program ID", "Date", "Program Name", "Storage Filename"])
+    for cell in photo_sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0B1730")
+    for photo in photos:
+        photo_sheet.append([
+            int(program.get("id") or 0), safe_cell(program.get("date")),
+            safe_cell(program.get("name")), safe_cell(os.path.basename(str(photo.get("filename") or "")))
+        ])
+    for col, width in {"A":12, "B":14, "C":32, "D":48}.items():
+        photo_sheet.column_dimensions[col].width = width
+    photo_sheet.freeze_panes = "A2"
+    if photo_sheet.max_row > 1:
+        photo_sheet.auto_filter.ref = photo_sheet.dimensions
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    date_part = str(program.get("date") or "undated")[:10]
+    return send_file(output,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True,
+                     download_name=f"program_report_{program_id}_{date_part}.xlsx")
+
 
 @app.route("/program/<int:program_id>/pdf")
 @login_required
