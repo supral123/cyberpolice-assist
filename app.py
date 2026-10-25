@@ -1,5 +1,4 @@
 import os
-import mimetypes
 import hmac
 import uuid
 from datetime import datetime, timedelta
@@ -9,7 +8,7 @@ from xml.sax.saxutils import escape
 
 from flask import (
     Flask, request, redirect, url_for, render_template_string,
-    send_from_directory, send_file, abort, session, Response
+    send_from_directory, send_file, abort, session
 )
 from werkzeug.utils import secure_filename
 from supabase import create_client
@@ -103,7 +102,6 @@ TEXT = {
 # in Render's Environment settings. Never expose the secret key in browser code.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
-STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "program-photos").strip() or "program-photos"
 supabase = None
 
 if SUPABASE_URL and SUPABASE_SECRET_KEY:
@@ -269,6 +267,7 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 @keyframes typeSpark{0%{opacity:0;transform:translateY(8px) scale(.6)}30%{opacity:1}100%{opacity:0;transform:translateY(-10px) scale(1.15)}}
 @media(prefers-reduced-motion:reduce){.program-magic:before,.magic-person,.magic-orbit,.magic-creature{animation:none!important}.program-magic{display:none}#programForm .form-group{transition:none}}
 
+.existing-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:12px}.existing-photo-card{min-width:0;padding:10px;border:1px solid var(--line);border-radius:14px;background:#071329}.existing-photo-card img{display:block;width:100%;height:115px;object-fit:cover;border-radius:9px}.remove-existing-photo{display:flex;align-items:center;gap:7px;margin-top:9px;color:#ff9da8;font-size:12px;font-weight:750;cursor:pointer}.remove-existing-photo input{width:16px;height:16px;accent-color:#ef476f}.existing-photo-card:has(input:checked){border-color:#ff667f;box-shadow:0 0 0 2px #ff667f22}.existing-photo-card:has(input:checked) img{opacity:.48}
 </style></head><body>
 <canvas id="cyber-canvas" aria-hidden="true"></canvas>
 <div class="cyber-scanline" aria-hidden="true"></div>
@@ -314,14 +313,14 @@ body:after{content:"";position:fixed;width:38vw;height:38vw;min-width:260px;min-
 <label for="voiceLanguage" style="margin-top:10px">{{ t.voice_language }}</label><select id="voiceLanguage"><option value="en-IN">English</option><option value="mr-IN">Marathi</option><option value="hi-IN">Hindi</option></select>
 <div class="voice-controls"><button class="button mic-button" type="button" id="startVoice"><span class="mic-button-icon">🎤</span> {{ t.start_voice }}</button> <button class="button secondary" type="button" id="stopVoice" disabled>{{ t.stop_voice }}</button></div>
 <div id="voiceStage" class="voice-stage" aria-hidden="true"><div class="voice-rings"><span></span><span></span><span></span></div><div class="voice-hand">✋</div><div class="voice-microphone">🎤</div><div class="voice-waves"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="voice-stage-label">MICROPHONE READY</div></div><p id="voiceStatus" class="help" aria-live="polite"></p></div>
-{% if mode == 'edit' and photos %}<div class="form-group"><label>{{ t.existing_photos }}</label><div class="gallery">{% for photo in photos %}<a href="{{ url_for('uploaded_file',filename=photo.filename) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploaded_file',filename=photo.filename) }}" alt="Program photo"></a>{% endfor %}</div><div class="help">Existing photos count toward the maximum of 10.</div></div>{% endif %}
+{% if mode == 'edit' and photos %}<div class="form-group"><label>{{ t.existing_photos }}</label><div class="existing-photo-grid">{% for photo in photos %}<div class="existing-photo-card" data-existing-photo><a href="{{ url_for('uploaded_file',filename=photo.filename) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploaded_file',filename=photo.filename) }}" alt="Program photo"></a><label class="remove-existing-photo"><input type="checkbox" name="remove_photos" value="{{ photo.filename }}" data-remove-existing> 🗑️ Remove photo</label></div>{% endfor %}</div><div class="help">Select the photos you want to remove, then click Save Changes. Removal happens only after saving.</div></div>{% endif %}
 <div class="form-group"><label>{{ t.photos if mode == 'add' else t.add_more_photos }}</label><input type="file" id="photoPicker" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple>
 <div class="help">{{ t.photo_help }}</div><p id="photoCount">0 / {{ 10 - (photos|length if mode == 'edit' else 0) }} {{ t.photo_count }}</p><div id="photoPreview" class="photo-preview-grid"></div><div id="uploadInputs"></div>
 <button class="button secondary" type="button" id="addPhotoButton">{{ t.add_photo }}</button></div>
 <div class="actions"><button class="button" type="submit">{{ t.submit if mode == 'add' else t.save_changes }}</button><a class="button secondary" href="{{ url_for('home',lang=lang) }}">{{ t.cancel }}</a></div>
 </form></div></section>
 <script>
-(function(){const form=document.getElementById('programForm'),picker=document.getElementById('photoPicker'),preview=document.getElementById('photoPreview'),count=document.getElementById('photoCount'),inputs=document.getElementById('uploadInputs'),addButton=document.getElementById('addPhotoButton'),magic=document.getElementById('programMagic'),magicCaption=document.getElementById('magicCaption');const maxAllowed={{ 10 - (photos|length if mode == 'edit' else 0) }};let selected=[],idCounter=1;
+(function(){const form=document.getElementById('programForm'),picker=document.getElementById('photoPicker'),preview=document.getElementById('photoPreview'),count=document.getElementById('photoCount'),inputs=document.getElementById('uploadInputs'),addButton=document.getElementById('addPhotoButton'),magic=document.getElementById('programMagic'),magicCaption=document.getElementById('magicCaption');let maxAllowed={{ 10 - (photos|length if mode == 'edit' else 0) }},selected=[],idCounter=1;const existingRemoveBoxes=Array.from(form.querySelectorAll('[data-remove-existing]'));function refreshPhotoLimit(){const removed=existingRemoveBoxes.filter(box=>box.checked).length;maxAllowed=Math.max(0,10-({{ photos|length if mode == 'edit' else 0 }}-removed));if(typeof render==='function')render()}
 if(form&&magic){
   // The investigator appears when Add Program opens.
   requestAnimationFrame(()=>{magic.classList.add('magic-open');magicCaption.textContent='3D SCENE ACTIVE · ENTER PROGRAM DETAILS'});
@@ -334,6 +333,7 @@ if(form&&magic){
   form.addEventListener('focusout',e=>{if(!form.contains(e.relatedTarget)){form.querySelectorAll('.form-group').forEach(g=>g.classList.remove('field-active'));magicCaption.textContent='3D PROGRAM INTERFACE · READY'}})
 }
 function render(){preview.replaceChildren();inputs.replaceChildren();selected.forEach(item=>{const card=document.createElement('div');card.className='photo-preview';const img=document.createElement('img');img.alt=item.file.name;const objectUrl=URL.createObjectURL(item.file);img.src=objectUrl;img.onload=()=>URL.revokeObjectURL(objectUrl);const name=document.createElement('div');name.className='filename';name.textContent=item.file.name;const remove=document.createElement('button');remove.type='button';remove.className='button danger';remove.textContent={{ t.remove_photo|tojson }};remove.addEventListener('click',()=>{selected=selected.filter(x=>x.id!==item.id);render()});card.append(img,name,remove);preview.appendChild(card);const dt=new DataTransfer();dt.items.add(item.file);const input=document.createElement('input');input.type='file';input.name='photos';input.hidden=true;input.files=dt.files;inputs.appendChild(input)});count.textContent=selected.length+' / '+maxAllowed+' {{ t.photo_count }}';picker.disabled=selected.length>=maxAllowed;addButton.disabled=selected.length>=maxAllowed}
+existingRemoveBoxes.forEach(box=>box.addEventListener('change',()=>{const removed=existingRemoveBoxes.filter(item=>item.checked).length;maxAllowed=Math.max(0,10-({{ photos|length if mode == 'edit' else 0 }}-removed));render()}));
 function addFiles(files){for(const file of files){if(selected.length>=maxAllowed){alert('Maximum photo count reached.');break}const ext=file.name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp'].includes(ext)){alert(file.name+' is not a supported image.');continue}selected.push({id:idCounter++,file})}render()}
 picker.addEventListener('change',()=>{addFiles(Array.from(picker.files||[]));picker.value=''});addButton.addEventListener('click',()=>{if(selected.length<maxAllowed)picker.click()});form.addEventListener('submit',e=>{if(selected.length>maxAllowed){e.preventDefault();alert('Maximum photo count exceeded.')}})})();
 (function(){const details=document.getElementById('programDetails'),language=document.getElementById('voiceLanguage'),start=document.getElementById('startVoice'),stop=document.getElementById('stopVoice'),status=document.getElementById('voiceStatus'),stage=document.getElementById('voiceStage'),stageLabel=document.querySelector('#voiceStage .voice-stage-label'),SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SpeechRecognition){start.disabled=true;status.textContent={{ t.voice_unsupported|tojson }};return}const recognition=new SpeechRecognition();recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;let listening=false,baseText='',finalText='';
@@ -433,11 +433,10 @@ def home():
                        for field in ("date", "station", "place", "name"))
             ]
         else:
-            programs = list(all_rows)
+            programs = all_rows
 
-        # Stable sorts: newest date first, then Place A-Z within each date.
+        # Show dashboard rows alphabetically by place (case-insensitive).
         programs.sort(key=lambda row: str(row.get("place") or "").strip().casefold())
-        programs.sort(key=lambda row: str(row.get("date") or "")[:10], reverse=True)
     except Exception:
         app.logger.exception("Could not load programs from Supabase")
         return "Database connection failed. Check Render logs and Supabase setup.", 500
@@ -449,48 +448,23 @@ def home():
     return render_page("home", lang, page_link="home", programs=programs, total_programs=total_programs,
                        total_attendees=total_attendees, query=query, message=message)
 
-def delete_stored_photos(names):
-    """Delete uploaded objects from the private Supabase Storage bucket."""
-    names = [os.path.basename(str(name)) for name in names if name]
-    if not names:
-        return
-    try:
-        get_supabase().storage.from_(STORAGE_BUCKET).remove(names)
-    except Exception:
-        app.logger.exception("Could not remove photographs from Supabase Storage")
-
-
 def validate_and_save_photos(files, existing_count=0):
-    """Upload images to Supabase Storage; Render's local disk is not persistent."""
     uploads = [f for f in files if f and f.filename]
-    if existing_count + len(uploads) > MAX_PHOTOS:
-        return None, "too_many"
+    if existing_count + len(uploads) > MAX_PHOTOS: return None, "too_many"
     for f in uploads:
-        if not allowed_file(f.filename):
-            return None, "invalid_photo"
-
+        if not allowed_file(f.filename): return None, "invalid_photo"
     names = []
-    storage = get_supabase().storage.from_(STORAGE_BUCKET)
     try:
         for f in uploads:
             safe_name = secure_filename(f.filename)
-            if not safe_name or "." not in safe_name:
-                raise ValueError("Invalid filename")
-            ext = safe_name.rsplit(".", 1)[1].lower()
+            if not safe_name or "." not in safe_name: raise ValueError("Invalid filename")
+            ext = safe_name.rsplit(".",1)[1].lower()
             filename = f"{uuid.uuid4().hex}.{ext}"
-            content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            file_bytes = f.read()
-            if not file_bytes:
-                raise ValueError("Uploaded photograph is empty")
-            storage.upload(filename, file_bytes, file_options={
-                "content-type": content_type,
-                "cache-control": "3600",
-                "upsert": "false"
-            })
-            names.append(filename)
+            f.save(os.path.join(UPLOAD_FOLDER,filename)); names.append(filename)
     except Exception:
-        delete_stored_photos(names)
-        app.logger.exception("Could not upload photographs to Supabase Storage")
+        for name in names:
+            try: os.remove(os.path.join(UPLOAD_FOLDER,name))
+            except OSError: pass
         raise
     return names, None
 
@@ -537,7 +511,9 @@ def add_program():
                     {"program_id": pid, "filename": filename} for filename in names
                 ]).execute()
         except Exception:
-            delete_stored_photos(names)
+            for filename in names:
+                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
+                except OSError: pass
             app.logger.exception("Could not save program to Supabase")
             return render_page("form", lang, page_link="home", mode="add", form=form, photos=[],
                                form_action=url_for("add_program", lang=lang),
@@ -595,7 +571,12 @@ def edit_program(program_id):
             return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
                                form_action=url_for("edit_program", program_id=program_id, lang=lang),
                                message=TEXT[lang]["required"], error=True), 400
-        names, err = validate_and_save_photos(request.files.getlist("photos"), existing_count=len(photos))
+        # Only allow removal of filenames already linked to this program.
+        requested_removals = set(request.form.getlist("remove_photos"))
+        current_filenames = {row["filename"] for row in photos}
+        removed_filenames = requested_removals.intersection(current_filenames)
+        remaining_count = len(current_filenames - removed_filenames)
+        names, err = validate_and_save_photos(request.files.getlist("photos"), existing_count=remaining_count)
         if err:
             return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
                                form_action=url_for("edit_program", program_id=program_id, lang=lang),
@@ -605,6 +586,8 @@ def edit_program(program_id):
                 "date": date, "station": station, "place": place, "name": name,
                 "attendees": attendees, "details": details
             }).eq("id", program_id).execute()
+            for filename in removed_filenames:
+                db.table("program_photos").delete().eq("program_id", program_id).eq("filename", filename).execute()
             if names:
                 db.table("program_photos").insert([
                     {"program_id": program_id, "filename": filename} for filename in names
@@ -612,12 +595,18 @@ def edit_program(program_id):
             updated_photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
             db.table("programs").update({"photo": updated_photos[0]["filename"] if updated_photos else ""}).eq("id", program_id).execute()
         except Exception:
-            delete_stored_photos(names)
+            for filename in names:
+                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
+                except OSError: pass
             app.logger.exception("Could not update program in Supabase")
             return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
                                form_action=url_for("edit_program", program_id=program_id, lang=lang),
                                message="Could not update program. Check Supabase configuration and try again.",
                                error=True), 500
+        # Delete local files only after the database changes succeed.
+        for filename in removed_filenames:
+            try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
+            except OSError: pass
         return redirect(url_for("program_details", program_id=program_id, lang=lang))
 
     return render_page("form", lang, page_link="home", mode="edit", form=program, photos=photos,
@@ -636,22 +625,17 @@ def delete_program(program_id):
     except Exception:
         app.logger.exception("Could not delete program from Supabase")
         return "Could not delete program. Check Supabase configuration and logs.", 500
-    delete_stored_photos([row.get("filename") for row in photos])
+    for row in photos:
+        try: os.remove(os.path.join(UPLOAD_FOLDER, row["filename"]))
+        except OSError: pass
     return redirect(url_for("home", lang=get_language(), deleted=1))
 
 @app.route("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
-    safe = os.path.basename(filename)
-    if safe != filename:
-        abort(404)
-    try:
-        image_bytes = get_supabase().storage.from_(STORAGE_BUCKET).download(safe)
-    except Exception:
-        app.logger.exception("Photograph not found in Supabase Storage: %s", safe)
-        abort(404)
-    mime_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
-    return send_file(BytesIO(image_bytes), mimetype=mime_type, download_name=safe, max_age=0)
+    safe=os.path.basename(filename)
+    if safe!=filename: abort(404)
+    return send_from_directory(UPLOAD_FOLDER,safe)
 
 @app.route("/program/<int:program_id>/pdf")
 @login_required
@@ -683,19 +667,13 @@ def download_pdf(program_id):
     if program is None:
         abort(404)
 
-    # Fetch each image from persistent Supabase Storage, not Render's temporary disk.
+    # Keep the existing Supabase database flow and current uploads folder unchanged.
     photo_files = []
-    storage = get_supabase().storage.from_(STORAGE_BUCKET)
     for photo in photos:
         filename = os.path.basename(str(photo.get("filename", "")))
-        if not filename:
-            continue
-        try:
-            image_bytes = storage.download(filename)
-            if image_bytes:
-                photo_files.append((filename, image_bytes))
-        except Exception:
-            app.logger.exception("Photograph missing/unavailable in Supabase Storage: %s", filename)
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        if filename and os.path.isfile(path):
+            photo_files.append((filename, path))
 
     page_w, page_h = A4
     margin = 15 * mm
@@ -860,7 +838,7 @@ def download_pdf(program_id):
             pdf.drawString(margin, page_h - 55, str(program.get("name") or t["title"])[:100])
             pdf.drawRightString(page_w - margin, page_h - 55, f"{len(photo_files)} PHOTOS")
 
-            for local_index, (filename, image_bytes) in enumerate(chunk):
+            for local_index, (filename, path) in enumerate(chunk):
                 col = local_index % 2
                 row = local_index // 2
                 x = margin + col * (cell_w + grid_gap_x)
@@ -873,7 +851,7 @@ def download_pdf(program_id):
                 pdf.roundRect(x, cell_bottom, cell_w, cell_h, 9, fill=0, stroke=1)
 
                 try:
-                    reader = ImageReader(BytesIO(image_bytes))
+                    reader = ImageReader(path)
                     iw, ih = reader.getSize()
                     if iw > 0 and ih > 0:
                         scale = min(image_w / iw, image_h / ih)
