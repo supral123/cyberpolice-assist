@@ -1,4 +1,5 @@
 import os
+import mimetypes
 import hmac
 import uuid
 from datetime import datetime, timedelta
@@ -8,7 +9,7 @@ from xml.sax.saxutils import escape
 
 from flask import (
     Flask, request, redirect, url_for, render_template_string,
-    send_from_directory, send_file, abort, session
+    send_from_directory, send_file, abort, session, Response
 )
 from werkzeug.utils import secure_filename
 from supabase import create_client
@@ -102,6 +103,7 @@ TEXT = {
 # in Render's Environment settings. Never expose the secret key in browser code.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "program-photos").strip() or "program-photos"
 supabase = None
 
 if SUPABASE_URL and SUPABASE_SECRET_KEY:
@@ -431,19 +433,11 @@ def home():
                        for field in ("date", "station", "place", "name"))
             ]
         else:
-            programs = all_rows
+            programs = list(all_rows)
 
-        # Show dashboard rows alphabetically by place (case-insensitive).
-        
-        # Sort by date descending first, then place A-Z for the same date.
-        programs.sort(
-            key=lambda row: str(row.get("place") or "").strip().casefold()
-        )
-        programs.sort(
-            key=lambda row: str(row.get("date") or "")[:10],
-            reverse=True
-        )
-
+        # Stable sorts: newest date first, then Place A-Z within each date.
+        programs.sort(key=lambda row: str(row.get("place") or "").strip().casefold())
+        programs.sort(key=lambda row: str(row.get("date") or "")[:10], reverse=True)
     except Exception:
         app.logger.exception("Could not load programs from Supabase")
         return "Database connection failed. Check Render logs and Supabase setup.", 500
@@ -455,23 +449,48 @@ def home():
     return render_page("home", lang, page_link="home", programs=programs, total_programs=total_programs,
                        total_attendees=total_attendees, query=query, message=message)
 
+def delete_stored_photos(names):
+    """Delete uploaded objects from the private Supabase Storage bucket."""
+    names = [os.path.basename(str(name)) for name in names if name]
+    if not names:
+        return
+    try:
+        get_supabase().storage.from_(STORAGE_BUCKET).remove(names)
+    except Exception:
+        app.logger.exception("Could not remove photographs from Supabase Storage")
+
+
 def validate_and_save_photos(files, existing_count=0):
+    """Upload images to Supabase Storage; Render's local disk is not persistent."""
     uploads = [f for f in files if f and f.filename]
-    if existing_count + len(uploads) > MAX_PHOTOS: return None, "too_many"
+    if existing_count + len(uploads) > MAX_PHOTOS:
+        return None, "too_many"
     for f in uploads:
-        if not allowed_file(f.filename): return None, "invalid_photo"
+        if not allowed_file(f.filename):
+            return None, "invalid_photo"
+
     names = []
+    storage = get_supabase().storage.from_(STORAGE_BUCKET)
     try:
         for f in uploads:
             safe_name = secure_filename(f.filename)
-            if not safe_name or "." not in safe_name: raise ValueError("Invalid filename")
-            ext = safe_name.rsplit(".",1)[1].lower()
+            if not safe_name or "." not in safe_name:
+                raise ValueError("Invalid filename")
+            ext = safe_name.rsplit(".", 1)[1].lower()
             filename = f"{uuid.uuid4().hex}.{ext}"
-            f.save(os.path.join(UPLOAD_FOLDER,filename)); names.append(filename)
+            content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            file_bytes = f.read()
+            if not file_bytes:
+                raise ValueError("Uploaded photograph is empty")
+            storage.upload(filename, file_bytes, file_options={
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": "false"
+            })
+            names.append(filename)
     except Exception:
-        for name in names:
-            try: os.remove(os.path.join(UPLOAD_FOLDER,name))
-            except OSError: pass
+        delete_stored_photos(names)
+        app.logger.exception("Could not upload photographs to Supabase Storage")
         raise
     return names, None
 
@@ -518,9 +537,7 @@ def add_program():
                     {"program_id": pid, "filename": filename} for filename in names
                 ]).execute()
         except Exception:
-            for filename in names:
-                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
-                except OSError: pass
+            delete_stored_photos(names)
             app.logger.exception("Could not save program to Supabase")
             return render_page("form", lang, page_link="home", mode="add", form=form, photos=[],
                                form_action=url_for("add_program", lang=lang),
@@ -595,9 +612,7 @@ def edit_program(program_id):
             updated_photos = db.table("program_photos").select("filename").eq("program_id", program_id).order("id").execute().data or []
             db.table("programs").update({"photo": updated_photos[0]["filename"] if updated_photos else ""}).eq("id", program_id).execute()
         except Exception:
-            for filename in names:
-                try: os.remove(os.path.join(UPLOAD_FOLDER, filename))
-                except OSError: pass
+            delete_stored_photos(names)
             app.logger.exception("Could not update program in Supabase")
             return render_page("form", lang, page_link="home", mode="edit", form=form, photos=photos,
                                form_action=url_for("edit_program", program_id=program_id, lang=lang),
@@ -621,17 +636,22 @@ def delete_program(program_id):
     except Exception:
         app.logger.exception("Could not delete program from Supabase")
         return "Could not delete program. Check Supabase configuration and logs.", 500
-    for row in photos:
-        try: os.remove(os.path.join(UPLOAD_FOLDER, row["filename"]))
-        except OSError: pass
+    delete_stored_photos([row.get("filename") for row in photos])
     return redirect(url_for("home", lang=get_language(), deleted=1))
 
 @app.route("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
-    safe=os.path.basename(filename)
-    if safe!=filename: abort(404)
-    return send_from_directory(UPLOAD_FOLDER,safe)
+    safe = os.path.basename(filename)
+    if safe != filename:
+        abort(404)
+    try:
+        image_bytes = get_supabase().storage.from_(STORAGE_BUCKET).download(safe)
+    except Exception:
+        app.logger.exception("Photograph not found in Supabase Storage: %s", safe)
+        abort(404)
+    mime_type = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    return send_file(BytesIO(image_bytes), mimetype=mime_type, download_name=safe, max_age=0)
 
 @app.route("/program/<int:program_id>/pdf")
 @login_required
@@ -663,13 +683,19 @@ def download_pdf(program_id):
     if program is None:
         abort(404)
 
-    # Keep the existing Supabase database flow and current uploads folder unchanged.
+    # Fetch each image from persistent Supabase Storage, not Render's temporary disk.
     photo_files = []
+    storage = get_supabase().storage.from_(STORAGE_BUCKET)
     for photo in photos:
         filename = os.path.basename(str(photo.get("filename", "")))
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        if filename and os.path.isfile(path):
-            photo_files.append((filename, path))
+        if not filename:
+            continue
+        try:
+            image_bytes = storage.download(filename)
+            if image_bytes:
+                photo_files.append((filename, image_bytes))
+        except Exception:
+            app.logger.exception("Photograph missing/unavailable in Supabase Storage: %s", filename)
 
     page_w, page_h = A4
     margin = 15 * mm
@@ -834,7 +860,7 @@ def download_pdf(program_id):
             pdf.drawString(margin, page_h - 55, str(program.get("name") or t["title"])[:100])
             pdf.drawRightString(page_w - margin, page_h - 55, f"{len(photo_files)} PHOTOS")
 
-            for local_index, (filename, path) in enumerate(chunk):
+            for local_index, (filename, image_bytes) in enumerate(chunk):
                 col = local_index % 2
                 row = local_index // 2
                 x = margin + col * (cell_w + grid_gap_x)
@@ -847,7 +873,7 @@ def download_pdf(program_id):
                 pdf.roundRect(x, cell_bottom, cell_w, cell_h, 9, fill=0, stroke=1)
 
                 try:
-                    reader = ImageReader(path)
+                    reader = ImageReader(BytesIO(image_bytes))
                     iw, ih = reader.getSize()
                     if iw > 0 and ih > 0:
                         scale = min(image_w / iw, image_h / ih)
