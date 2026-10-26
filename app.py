@@ -1,6 +1,7 @@
 import os
 import calendar as pycalendar
 import mimetypes
+import tempfile
 import hmac
 import uuid
 from datetime import datetime, timedelta, date
@@ -1419,8 +1420,12 @@ def download_range_report():
         except Exception:
             app.logger.exception("Could not register Unicode font for date-range PDF")
 
-    output = BytesIO()
-    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=16*mm, leftMargin=16*mm,
+    # Build the combined PDF on disk instead of keeping the full PDF in RAM.
+    pdf_tmp = tempfile.NamedTemporaryFile(prefix="cyber_range_report_", suffix=".pdf", delete=False)
+    output_path = pdf_tmp.name
+    pdf_tmp.close()
+    photo_temp_paths = []
+    doc = SimpleDocTemplate(output_path, pagesize=A4, rightMargin=16*mm, leftMargin=16*mm,
                             topMargin=17*mm, bottomMargin=17*mm, title="Cyber Awareness Program Report")
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="RangeTitle", parent=styles["Title"], fontName=font_name,
@@ -1459,10 +1464,38 @@ def download_range_report():
         for filename in photos_by_program.get(pid, []):
             try:
                 image_bytes = storage.download(filename)
-                if image_bytes:
-                    photo_flowables.append(Image(BytesIO(image_bytes), width=72*mm, height=48*mm, kind="proportional"))
+                if not image_bytes:
+                    continue
+
+                # Resize each image and write a compact JPEG to temporary disk.
+                # ReportLab then reads image paths rather than retaining every
+                # original full-resolution photo in process memory.
+                from PIL import Image as PILImage
+                with PILImage.open(BytesIO(image_bytes)) as source_image:
+                    source_image.thumbnail((1000, 750))
+                    if source_image.mode != "RGB":
+                        if "A" in source_image.getbands():
+                            rgba = source_image.convert("RGBA")
+                            background = PILImage.new("RGB", rgba.size, "white")
+                            background.paste(rgba, mask=rgba.getchannel("A"))
+                            prepared = background
+                        else:
+                            prepared = source_image.convert("RGB")
+                    else:
+                        prepared = source_image.copy()
+
+                    photo_tmp = tempfile.NamedTemporaryFile(
+                        prefix="cyber_range_photo_", suffix=".jpg", delete=False
+                    )
+                    photo_path = photo_tmp.name
+                    photo_tmp.close()
+                    prepared.save(photo_path, format="JPEG", quality=65, optimize=True)
+                    photo_temp_paths.append(photo_path)
+                    photo_flowables.append(
+                        Image(photo_path, width=72*mm, height=48*mm, kind="proportional")
+                    )
             except Exception:
-                app.logger.exception("Could not fetch range-report photograph %s", filename)
+                app.logger.exception("Could not process range-report photograph %s", filename)
         if photo_flowables:
             story.append(Paragraph("Photographs", styles["RangeHeading"]))
             photo_rows = []
@@ -1490,10 +1523,29 @@ def download_range_report():
         doc.build(story, onFirstPage=footer, onLaterPages=footer)
     except Exception:
         app.logger.exception("Could not build combined date-range PDF")
+        for temp_path in photo_temp_paths:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+        try:
+            os.unlink(output_path)
+        except OSError:
+            pass
         return "Could not generate combined PDF. Check Render logs.", 500
-    output.seek(0)
-    return send_file(output, mimetype="application/pdf", as_attachment=True,
-                     download_name=f"program_reports_{date_label}.pdf")
+
+    response = send_file(output_path, mimetype="application/pdf", as_attachment=True,
+                         download_name=f"program_reports_{date_label}.pdf")
+
+    # Remove temporary PDF and compressed images after Flask finishes sending it.
+    def cleanup_range_report_files():
+        for temp_path in photo_temp_paths + [output_path]:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+    response.call_on_close(cleanup_range_report_files)
+    return response
 
 
 @app.after_request
