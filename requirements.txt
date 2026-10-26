@@ -5,3 +5,4 @@ supabase
 uharfbuzz>=0.39.0
 reportlab>=4.4.0
 openpyxl>=3.1.5
+Pillow>=10.0.0
